@@ -1,4 +1,5 @@
 let scanner = null;
+let scannerLock = false;
 
 /* =========================
    START SCANNER
@@ -12,14 +13,15 @@ async function startScanner() {
     return;
   }
 
+  scannerLock = false;
   reader.innerHTML = "";
-
-  /* evita scanner duplicati */
 
   if (scanner) {
     try {
       await scanner.stop();
-    } catch (e) {}
+    } catch (e) {
+      /* ignore */
+    }
     scanner = null;
   }
 
@@ -31,15 +33,10 @@ async function startScanner() {
   };
 
   try {
-    /* PRIMA PROVA CAMERA POSTERIORE */
-
     await scanner.start(
       { facingMode: "environment" },
-
       config,
-
       onScanSuccess,
-
       onScanError,
     );
   } catch (err) {
@@ -67,15 +64,7 @@ async function startScanner() {
         }
       });
 
-      await scanner.start(
-        cameraId,
-
-        config,
-
-        onScanSuccess,
-
-        onScanError,
-      );
+      await scanner.start(cameraId, config, onScanSuccess, onScanError);
     } catch (err2) {
       console.error("Errore avvio scanner:", err2);
       alert("Errore accesso fotocamera");
@@ -83,51 +72,44 @@ async function startScanner() {
   }
 }
 
-/* =========================
-   SUCCESS
-========================= */
-
-function onScanSuccess(qrCodeMessage) {
-  console.log("QR trovato:", qrCodeMessage);
+async function onScanSuccess(qrCodeMessage) {
+  if (scannerLock) return;
+  scannerLock = true;
 
   if (navigator.vibrate) {
     navigator.vibrate(200);
   }
 
   if (scanner) {
-    scanner.stop();
+    try {
+      await scanner.stop();
+    } catch (e) {
+      console.warn("Errore stop scanner:", e);
+    }
   }
 
   if (typeof handleSpotifyTrack === "function") {
-    handleSpotifyTrack(qrCodeMessage);
+    await handleSpotifyTrack(qrCodeMessage);
   }
 }
-
-/* =========================
-   ERROR (IGNORATO)
-========================= */
 
 function onScanError(error) {
   /* ignoriamo errori continui */
 }
 
-/* =========================
-   EXTRACT TRACK ID
-========================= */
+function extractTrackId(value) {
+  if (!value || typeof value !== "string") return null;
 
-function extractTrackId(url) {
-  if (!url) return null;
+  const trimmed = value.trim();
+  const idPattern = /^[A-Za-z0-9]{22}$/;
 
-  try {
-    const match = url.match(/track\/([a-zA-Z0-9]+)/);
+  const uriMatch = trimmed.match(/^spotify:track:([A-Za-z0-9]{22})$/i);
+  if (uriMatch && idPattern.test(uriMatch[1])) return uriMatch[1];
 
-    if (match && match[1]) {
-      return match[1];
-    }
+  const urlMatch = trimmed.match(
+    /^https:\/\/open\.spotify\.com\/track\/([A-Za-z0-9]{22})(?:\?.*)?$/i,
+  );
+  if (urlMatch && idPattern.test(urlMatch[1])) return urlMatch[1];
 
-    return null;
-  } catch (err) {
-    console.error("Errore parsing track ID:", err);
-    return null;
-  }
+  return null;
 }

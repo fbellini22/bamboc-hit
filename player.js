@@ -1,53 +1,57 @@
 let player = null;
 
-/* device id globale */
 window.device_id = null;
-
-/* promessa per sapere quando il player è pronto */
 window.player_ready_promise = null;
 
 let resolvePlayerReady;
+let playbackStartResolver = null;
 
-/* inizializza promessa */
 window.player_ready_promise = new Promise((resolve) => {
   resolvePlayerReady = resolve;
 });
 
-/* =========================
-   SDK READY
-========================= */
+window.waitForPlaybackStart = function waitForPlaybackStart(timeoutMs = 5000) {
+  return new Promise((resolve) => {
+    let settled = false;
+
+    const timeout = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        playbackStartResolver = null;
+        resolve(false);
+      }
+    }, timeoutMs);
+
+    playbackStartResolver = () => {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timeout);
+        playbackStartResolver = null;
+        resolve(true);
+      }
+    };
+  });
+};
 
 window.onSpotifyWebPlaybackSDKReady = () => {
-  console.log("Spotify SDK caricato");
-
   const token = localStorage.getItem("access_token");
 
   if (!token) {
     console.warn("Token non ancora presente, player inizializzato comunque");
   }
 
-  /* crea player */
-
   player = new Spotify.Player({
     name: "Bamboc-Hit Player",
-
     getOAuthToken: (cb) => {
       const freshToken = localStorage.getItem("access_token");
       cb(freshToken);
     },
-
     volume: 0.8,
   });
 
   window.player = player;
 
-  /* =========================
-     READY
-  ========================= */
-
   player.addListener("ready", ({ device_id }) => {
-    console.log("✅ Player pronto:", device_id);
-
     window.device_id = device_id;
 
     if (resolvePlayerReady) {
@@ -56,17 +60,15 @@ window.onSpotifyWebPlaybackSDKReady = () => {
     }
   });
 
-  /* =========================
-     OFFLINE
-  ========================= */
+  player.addListener("player_state_changed", (state) => {
+    if (state && state.paused === false && playbackStartResolver) {
+      playbackStartResolver();
+    }
+  });
 
   player.addListener("not_ready", ({ device_id }) => {
     console.warn("⚠️ Player offline:", device_id);
   });
-
-  /* =========================
-     ERRORI
-  ========================= */
 
   player.addListener("initialization_error", ({ message }) => {
     console.error("Initialization error:", message);
@@ -84,14 +86,8 @@ window.onSpotifyWebPlaybackSDKReady = () => {
     console.error("Playback error:", message);
   });
 
-  /* =========================
-     CONNECT
-  ========================= */
-
   player.connect().then((success) => {
-    if (success) {
-      console.log("🎧 Player connesso");
-    } else {
+    if (!success) {
       console.error("❌ Connessione player fallita");
     }
   });

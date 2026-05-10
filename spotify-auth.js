@@ -56,9 +56,11 @@ async function handleRedirect() {
     body: body,
   });
 
-  const data = await response.json();
+  if (!response.ok) {
+    throw new Error("Errore autenticazione Spotify");
+  }
 
-  console.log("Spotify token:", data);
+  const data = await response.json();
 
   localStorage.setItem("access_token", data.access_token);
 
