@@ -6,6 +6,8 @@ function debug(msg) {
 let gameTimer = null;
 let gameActive = false;
 let currentTrack = null;
+const ROUND_DURATION_SECONDS = 45;
+const ROUND_DURATION_MS = ROUND_DURATION_SECONDS * 1000;
 
 window.onload = async () => {
   await handleRedirect();
@@ -110,7 +112,7 @@ async function playRandomSnippet(track) {
   }
 
   const duration = track.duration_ms;
-  const start = Math.floor(Math.random() * Math.max(duration - 30000, 0));
+  const start = Math.floor(Math.random() * Math.max(duration - ROUND_DURATION_MS, 0));
 
   try {
     const transferRes = await fetch("https://api.spotify.com/v1/me/player", {
@@ -159,7 +161,7 @@ async function playRandomSnippet(track) {
 }
 
 function startCountdown() {
-  let time = 30;
+  let time = ROUND_DURATION_SECONDS;
 
   const countdown = document.getElementById("countdown");
   const revealBtn = document.getElementById("reveal-btn");
