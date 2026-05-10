@@ -1,0 +1,294 @@
+/* RESET */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* BODY */
+body {
+  height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+
+  font-family: Arial, Helvetica, sans-serif;
+  color: white;
+
+  background: linear-gradient(135deg, #5f2c82, #3a1c71, #1a2a6c);
+
+  text-align: center;
+}
+
+/* SCREENS */
+.screen {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 25px;
+  padding: 20px;
+}
+
+/* =========================
+   TITLE NEON CLEAN
+========================= */
+
+.title {
+  font-family: "Monoton", cursive;
+
+  font-size: 64px;
+  letter-spacing: 2px;
+
+  color: #ff7ab8;
+
+  text-shadow:
+    0 0 2px #fff,
+    0 0 6px #ff7ab8,
+    0 0 12px #ff3d81,
+    0 0 20px #ff2a7a;
+
+  animation: neon-breathe 3s ease-in-out infinite;
+}
+
+/* =========================
+   BUTTON
+========================= */
+
+.primary-btn {
+  background: linear-gradient(90deg, #ff3d81, #ff6a00);
+  border: none;
+
+  padding: 14px 30px;
+  font-size: 18px;
+
+  color: white;
+  border-radius: 12px;
+
+  cursor: pointer;
+
+  transition: all 0.25s;
+
+  box-shadow: 0 8px 20px rgba(255, 61, 129, 0.3);
+
+  display: inline-block;
+  min-width: 180px;
+}
+
+.primary-btn:hover {
+  transform: translateY(-3px) scale(1.03);
+  box-shadow: 0 10px 25px rgba(255, 61, 129, 0.5);
+}
+
+/* SECONDARY BUTTON */
+
+.secondary-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 2px solid rgba(255, 255, 255, 0.2);
+
+  padding: 10px 20px;
+  font-size: 14px;
+
+  color: white;
+  border-radius: 10px;
+
+  cursor: pointer;
+
+  transition: all 0.25s;
+  backdrop-filter: blur(6px);
+}
+
+.secondary-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px);
+}
+
+/* =========================
+   SCANNER
+========================= */
+
+.scanner-container {
+  margin-top: 20px;
+
+  background: rgba(255, 255, 255, 0.08);
+  padding: 18px;
+
+  border-radius: 16px;
+
+  backdrop-filter: blur(10px);
+
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+}
+
+#reader {
+  width: 300px;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+/* =========================
+   TIMER
+========================= */
+
+.timer {
+  position: relative;
+  width: 180px;
+  height: 180px;
+  margin-top: 25px;
+}
+
+.timer-text {
+  position: absolute;
+
+  top: 50%;
+  left: 50%;
+
+  transform: translate(-50%, -50%);
+
+  font-size: 42px;
+  font-weight: bold;
+}
+
+.progress-ring-bg {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.2);
+  stroke-width: 10;
+}
+
+.progress-ring-circle {
+  fill: none;
+
+  stroke: #ff3d81;
+  stroke-width: 10;
+
+  stroke-dasharray: 502;
+  stroke-dashoffset: 0;
+
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
+
+  transition: stroke-dashoffset 1s linear;
+}
+
+/* =========================
+   CARD FLIP
+========================= */
+
+.card-container {
+  margin-top: 25px;
+  perspective: 1000px;
+  display: none;
+}
+
+.card {
+  width: 260px;
+  height: 160px;
+
+  position: relative;
+
+  transform-style: preserve-3d;
+  transition: transform 0.8s ease;
+}
+
+.card.flip {
+  transform: rotateY(180deg);
+}
+
+.card-front,
+.card-back {
+  position: absolute;
+
+  width: 100%;
+  height: 100%;
+
+  border-radius: 16px;
+
+  display: flex;
+  justify-content: center;
+  align-items: center;
+
+  background: rgba(255, 255, 255, 0.08);
+
+  backdrop-filter: blur(10px);
+
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+
+  backface-visibility: hidden;
+}
+
+.card-front {
+  font-size: 40px;
+}
+
+.card-back {
+  transform: rotateY(180deg);
+
+  padding: 20px;
+
+  text-align: center;
+
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.card-back h2 {
+  font-size: 18px;
+}
+
+.card-back p {
+  font-size: 14px;
+  opacity: 0.8;
+}
+
+/* =========================
+   MOBILE
+========================= */
+
+@media (max-width: 500px) {
+  .title {
+    font-size: 36px;
+  }
+
+  .timer-text {
+    font-size: 32px;
+  }
+
+  #reader {
+    width: 250px;
+  }
+}
+
+/* =========================
+   NEON ANIMATION
+========================= */
+
+@keyframes neon-breathe {
+  0% {
+    text-shadow:
+      0 0 2px #fff,
+      0 0 6px #ff7ab8,
+      0 0 12px #ff3d81,
+      0 0 20px #ff2a7a;
+  }
+
+  50% {
+    text-shadow:
+      0 0 3px #fff,
+      0 0 10px #ff7ab8,
+      0 0 18px #ff3d81,
+      0 0 30px #ff2a7a;
+  }
+
+  100% {
+    text-shadow:
+      0 0 2px #fff,
+      0 0 6px #ff7ab8,
+      0 0 12px #ff3d81,
+      0 0 20px #ff2a7a;
+  }
+}
+
+/* DEBUG */
+#debug {
+  display: none;
+}
