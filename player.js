@@ -1,10 +1,19 @@
 "use strict";
 (() => {
   const { config, core, auth } = window.Bamboc;
-  let player = null, deviceId = null, connected = null, sdkLoading = null;
+  let player = null, deviceId = null, connected = null, sdkLoading = null, connectionReady = false;
+  const failure = (code, message) => new core.SpotifyError(code, message);
+  const isReady = () => Boolean(player && connectionReady && typeof deviceId === "string" && deviceId.trim());
   let active = false, connectionEpoch = 0, cancelConnection = null, stateSequence = 0;
   let currentRound = null, pendingPause = null, desiredVolume = config.defaultVolume;
   const stateListeners = new Set(), errorListeners = new Set(), readyListeners = new Set();
+  const sdkEvents = ["ready", "not_ready", "player_state_changed", "initialization_error",
+    "authentication_error", "account_error", "playback_error", "autoplay_failed"];
+  function retire(instance) {
+    if (!instance) return;
+    for (const event of sdkEvents) instance.removeListener?.(event);
+    instance.disconnect();
+  }
   const durations = new Map();
   const durationKey = "bamboc.spotify.durations.v1";
   try {
@@ -36,8 +45,8 @@
     cancelConnection = null;
     connected = null;
     const old = player;
-    player = null; deviceId = null; active = false; pendingPause = null;
-    old?.disconnect();
+    player = null; deviceId = null; active = false; pendingPause = null; connectionReady = false;
+    retire(old);
   }
   function abandon(round, error) {
     if (currentRound !== round) return;
@@ -68,8 +77,8 @@
       window.onSpotifyWebPlaybackSDKReady = () => finish();
       script.src = "https://sdk.scdn.co/spotify-player.js";
       script.async = true;
-      script.onerror = () => finish(new Error("Impossibile caricare Spotify. Controlla la connessione e riprova."));
-      timer = setTimeout(() => finish(new Error("Timeout caricamento Spotify SDK.")), config.readyTimeoutMs);
+      script.onerror = () => finish(failure("NETWORK_ERROR", "Impossibile caricare Spotify. Controlla la connessione e riconnetti Spotify."));
+      timer = setTimeout(() => finish(failure("NETWORK_ERROR", "Timeout caricamento Spotify SDK.")), config.readyTimeoutMs);
       document.head.append(script);
     }).catch(error => { sdkLoading = null; throw error; });
     return sdkLoading;
@@ -81,14 +90,18 @@
         auth.getToken().then(token => { if (instance === player) callback(token); }).catch(error => {
           if (instance !== player) return;
           notifyError(error);
-          instance.disconnect();
+          if (instance === player) disconnectDevice(error);
         });
       },
     });
     instance.addListener("ready", event => {
       if (instance !== player) return;
+      if (typeof event?.device_id !== "string" || !event.device_id.trim()) {
+        connectionReady = false; deviceId = null;
+        notifyError(failure("DEVICE_NOT_READY", "Spotify non ha fornito un dispositivo valido. Riconnetti Spotify.")); return;
+      }
       if (currentRound?.device && currentRound.device !== event.device_id) {
-        const error = new Error("Dispositivo Spotify cambiato durante il round. Riprova SCAN.");
+        const error = failure("DEVICE_NOT_READY", "Dispositivo Spotify cambiato durante il round. Riconnetti Spotify.");
         abandon(currentRound, error); notifyError(error); return;
       }
       deviceId = event.device_id; active = false;
@@ -96,8 +109,8 @@
     });
     instance.addListener("not_ready", () => {
       if (instance !== player) return;
-      deviceId = null; active = false;
-      notifyError(new Error("Dispositivo Spotify offline. Riprova SCAN per riconnetterlo."));
+      deviceId = null; active = false; connectionReady = false;
+      notifyError(failure("DEVICE_NOT_READY", "Dispositivo Spotify offline. Riconnetti Spotify."));
     });
     instance.addListener("player_state_changed", () => {
       if (instance !== player) return;
@@ -120,18 +133,21 @@
           playback_error: "Riproduzione Spotify non riuscita. Riprova.",
           autoplay_failed: "Audio bloccato dal browser. Premi SCAN e riprova.",
         };
-        if (type !== "playback_error" && type !== "autoplay_failed") { deviceId = null; active = false; }
-        notifyError(new Error(messages[type]));
+        if (type !== "playback_error" && type !== "autoplay_failed") { deviceId = null; active = false; connectionReady = false; }
+        const error = type === "authentication_error" ? new auth.LoginRequired(messages[type])
+          : failure(type === "initialization_error" || type === "account_error" ? "PLAYER_NOT_READY" : "PLAYBACK_FAILED", messages[type]);
+        notifyError(error);
       });
     }
     return instance;
   }
   function prepare() {
-    if (deviceId) return Promise.resolve(deviceId);
     if (connected) return connected;
     const epoch = connectionEpoch;
     const operation = (async () => {
       await auth.getToken();
+      if (epoch !== connectionEpoch) throw failure("PLAYER_NOT_READY", "Preparazione player annullata.");
+      if (isReady()) return deviceId;
       await loadSDK();
       if (epoch !== connectionEpoch) throw new Error("Preparazione player annullata.");
       if (!player) player = createPlayer();
@@ -141,20 +157,22 @@
         onReady = resolve; onError = reject;
         cancelConnection = reject;
         readyListeners.add(onReady); errorListeners.add(onError);
-        timer = setTimeout(() => reject(new Error("Player Spotify non pronto. Riprova.")), config.readyTimeoutMs);
+        timer = setTimeout(() => reject(failure("PLAYER_NOT_READY", "Player Spotify non pronto. Riconnetti Spotify.")), config.readyTimeoutMs);
       });
       try {
         await Promise.all([ready, core.withTimeout(instance.connect(), config.readyTimeoutMs,
           "Timeout connessione Spotify.").then(ok => {
-          if (!ok) throw new Error("Connessione Spotify non riuscita.");
+          if (!ok) throw failure("PLAYER_NOT_READY", "Connessione Spotify non riuscita.");
         })]);
         if (epoch !== connectionEpoch || instance !== player) throw new Error("Connessione annullata.");
+        if (!deviceId) throw failure("DEVICE_NOT_READY", "Dispositivo Spotify non pronto.");
+        connectionReady = true;
         return deviceId;
       } catch (error) {
         onError(error);
-        instance.disconnect();
-        if (player === instance) { player = null; deviceId = null; active = false; }
-        throw error;
+        retire(instance);
+        if (player === instance) { player = null; deviceId = null; active = false; connectionReady = false; }
+        throw error.code ? error : failure("PLAYER_NOT_READY", error.message);
       } finally {
         clearTimeout(timer); readyListeners.delete(onReady); errorListeners.delete(onError);
         if (cancelConnection === onError) cancelConnection = null;
@@ -166,10 +184,9 @@
     return operation;
   }
   function activate() {
-    // Must be called inside the click, before await. A retired player gets a new
-    // instance; its audio element still needs this fresh user activation.
-    if (!player && window.Spotify?.Player) player = createPlayer();
-    if (!player) return Promise.reject(new Error("Player in preparazione. Attendi e premi nuovamente SCAN."));
+    // Only activate an authenticated, connected instance in the user's click.
+    if (!auth.hasValidToken()) return Promise.reject(new auth.LoginRequired("Accedi a Spotify per iniziare."));
+    if (!isReady()) return Promise.reject(failure("PLAYER_NOT_READY", "Connessione a Spotify necessaria prima di SCAN."));
     return core.withTimeout(player.activateElement(), config.readyTimeoutMs, "Attivazione audio non riuscita.");
   }
   async function ensureActive(trace = () => {}, round) {
@@ -214,7 +231,7 @@
     // Events wake a fresh SDK read; stale event payloads never confirm a round.
     stateListeners.add(sample); errorListeners.add(fail);
     signal?.addEventListener("abort", abort, { once: true });
-    timeout = setTimeout(() => fail(new Error("Riproduzione non confermata. Premi SCAN per riprovare.")), timeoutMs);
+    timeout = setTimeout(() => fail(failure("PLAYBACK_NOT_CONFIRMED", "Riproduzione non confermata. Verifica Spotify e riconnetti il player.")), timeoutMs);
     poll = setInterval(sample, config.pollMs);
     if (signal?.aborted) abort();
     return { promise, arm: () => { armed = true; }, sample,
@@ -374,7 +391,12 @@
     if (currentRound) abandon(currentRound, new Error("Player disconnesso."));
     else disconnectDevice();
   }
-  window.Bamboc.playback = { prepare, activate, ensureActive, play, stop, disconnect, matches, waitForState,
+  function resetSession() {
+    disconnect(); desiredVolume = config.defaultVolume; durations.clear();
+    try { sessionStorage.removeItem(durationKey); } catch { /* Optional storage. */ }
+  }
+  auth.onInvalidated(resetSession);
+  window.Bamboc.playback = { prepare, activate, ensureActive, play, stop, disconnect, resetSession, isReady, matches, waitForState,
     onError(callback) { errorListeners.add(callback); return () => errorListeners.delete(callback); },
     onState(callback) { stateListeners.add(callback); return () => stateListeners.delete(callback); },
   };

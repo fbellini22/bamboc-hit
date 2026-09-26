@@ -1,21 +1,34 @@
 "use strict";
 (() => {
-  const { config } = window.Bamboc;
+  const { config, core } = window.Bamboc;
   const tokenKey = "bamboc.spotify.tokens", pkceKey = "bamboc.spotify.pkce";
   let tokens = null, refreshing = null, sessionEpoch = 0;
+  const invalidated = new Set(), requests = new Set();
   try { tokens = JSON.parse(localStorage.getItem(tokenKey)); } catch { /* Memory-only session. */ }
-  class LoginRequired extends Error {}
-  function clear() {
+  class LoginRequired extends core.SpotifyError {
+    constructor(message) { super("AUTH_REQUIRED", message); this.name = "LoginRequired"; }
+  }
+  const nonempty = value => typeof value === "string" && value.trim().length > 0;
+  function validSession() {
+    return tokens && nonempty(tokens.accessToken) && nonempty(tokens.refreshToken) &&
+      Number.isSafeInteger(tokens.expiresAt) && tokens.expiresAt >= 0;
+  }
+  function hasValidToken() { return Boolean(validSession() && tokens.expiresAt > Date.now()); }
+  function clear(error = new LoginRequired("Accedi a Spotify per iniziare.")) {
     sessionEpoch++;
-    tokens = null;
+    tokens = null; refreshing = null;
+    for (const request of requests) request.abort();
+    requests.clear();
     for (const key of [tokenKey, "access_token", "refresh_token", "token_expires_at", "verifier"]) {
       try { localStorage.removeItem(key); } catch { /* Storage may be disabled. */ }
     }
     try { sessionStorage.removeItem(pkceKey); } catch { /* Storage may be disabled. */ }
+    for (const callback of [...invalidated]) callback(error);
   }
   async function tokenRequest(body) {
     const epoch = sessionEpoch;
     const controller = new AbortController();
+    requests.add(controller);
     const timer = setTimeout(() => controller.abort(), config.requestTimeoutMs);
     try {
       const response = await fetch("https://accounts.spotify.com/api/token", {
@@ -26,39 +39,51 @@
       if (epoch !== sessionEpoch) throw new LoginRequired("Sessione annullata. Accedi nuovamente.");
       if (!response.ok) {
         if (response.status === 400 || response.status === 401) {
-          clear(); throw new LoginRequired("Sessione Spotify scaduta. Accedi nuovamente.");
+          throw new LoginRequired("Sessione Spotify scaduta. Accedi nuovamente.");
         }
         throw new Error("Autenticazione Spotify non disponibile (" + response.status + "). Riprova.");
       }
       const data = await response.json();
       if (epoch !== sessionEpoch) throw new LoginRequired("Sessione annullata. Accedi nuovamente.");
-      if (!data.access_token || !Number.isFinite(data.expires_in) || data.expires_in <= 0)
+      if (!nonempty(data.access_token) || !Number.isFinite(data.expires_in) || data.expires_in <= 0 ||
+          !nonempty(data.refresh_token || tokens?.refreshToken) ||
+          !Number.isSafeInteger(Date.now() + data.expires_in * 1000))
         throw new Error("Risposta token Spotify non valida.");
       tokens = { accessToken: data.access_token, refreshToken: data.refresh_token || tokens?.refreshToken,
         expiresAt: Date.now() + data.expires_in * 1000 };
       try { localStorage.setItem(tokenKey, JSON.stringify(tokens)); } catch { /* Keep token in memory. */ }
       return tokens.accessToken;
     } catch (error) {
-      if (error.name === "AbortError") throw new Error("Timeout autenticazione Spotify. Riprova.");
-      throw error;
-    } finally { clearTimeout(timer); }
+      const failure = error instanceof LoginRequired ? error : new LoginRequired(
+        error.name === "AbortError" ? "Timeout autenticazione Spotify. Accedi nuovamente."
+          : "Accesso Spotify da rinnovare. " + error.message);
+      if (epoch === sessionEpoch) clear(failure);
+      throw failure;
+    } finally { clearTimeout(timer); requests.delete(controller); }
   }
   async function getToken(force = false) {
     if (refreshing) return refreshing;
-    if (!force && tokens?.accessToken && tokens.expiresAt > Date.now() + config.refreshMarginMs) return tokens.accessToken;
-    if (!tokens?.refreshToken) { clear(); throw new LoginRequired("Accedi a Spotify per continuare."); }
-    refreshing = tokenRequest({ grant_type: "refresh_token", refresh_token: tokens.refreshToken })
-      .finally(() => { refreshing = null; });
-    return refreshing;
+    if (!validSession()) {
+      const error = new LoginRequired("Accedi a Spotify per iniziare."); clear(error); throw error;
+    }
+    if (!force && tokens.expiresAt > Date.now() + config.refreshMarginMs) return tokens.accessToken;
+    const operation = tokenRequest({ grant_type: "refresh_token", refresh_token: tokens.refreshToken });
+    refreshing = operation;
+    const settled = () => { if (refreshing === operation) refreshing = null; };
+    operation.then(settled, settled);
+    return operation;
   }
   function randomString() {
     return Array.from(crypto.getRandomValues(new Uint8Array(32)), n => n.toString(16).padStart(2, "0")).join("");
   }
   async function login() {
+    clear();
+    const epoch = sessionEpoch;
     const verifier = randomString(), state = randomString();
     const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
     const challenge = btoa(String.fromCharCode(...new Uint8Array(digest)))
       .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    if (epoch !== sessionEpoch) throw new LoginRequired("Accesso annullato. Riprova il login.");
     try { sessionStorage.setItem(pkceKey, JSON.stringify({ verifier, state, createdAt: Date.now() })); }
     catch { throw new Error("Abilita l'archiviazione del browser per effettuare il login."); }
     const params = new URLSearchParams({ client_id: config.clientId, response_type: "code",
@@ -69,26 +94,33 @@
   async function handleRedirect() {
     const url = new URL(window.location.href);
     const code = url.searchParams.get("code"), error = url.searchParams.get("error");
-    if (!code && !error) return;
+    if (!["code", "state", "error", "error_description"].some(key => url.searchParams.has(key))) return;
     let pkce;
     try { pkce = JSON.parse(sessionStorage.getItem(pkceKey)); } catch { /* Checked below. */ }
     const state = url.searchParams.get("state");
     for (const key of ["code", "state", "error", "error_description"]) url.searchParams.delete(key);
     window.history.replaceState({}, document.title, url.pathname + url.search + url.hash);
     try { sessionStorage.removeItem(pkceKey); } catch { /* Best effort cleanup. */ }
-    if (!pkce?.verifier || !state || state !== pkce.state || !Number.isFinite(pkce.createdAt) ||
-        Date.now() - pkce.createdAt > 600000 || pkce.createdAt > Date.now())
-      throw new LoginRequired("Login non valido o scaduto. Avvia nuovamente l'accesso.");
-    if (error) throw new LoginRequired("Accesso Spotify annullato o rifiutato.");
+    if (!nonempty(pkce?.verifier) || !state || state !== pkce.state || !Number.isFinite(pkce.createdAt) ||
+        Date.now() - pkce.createdAt > 600000 || pkce.createdAt > Date.now() || (!code && !error)) {
+      const failure = new LoginRequired("Login non valido o scaduto. Avvia nuovamente l'accesso.");
+      clear(failure); throw failure;
+    }
+    if (error) { const failure = new LoginRequired("Accesso Spotify annullato o rifiutato."); clear(failure); throw failure; }
+    // Never retain another session's refresh token when exchanging a new code.
+    tokens = null;
     await tokenRequest({ grant_type: "authorization_code", code,
       redirect_uri: config.redirectUri, code_verifier: pkce.verifier });
   }
   async function api(path, { method = "PUT", body, signal } = {}) {
+    const epoch = sessionEpoch;
     for (let attempt = 0; attempt < 2; attempt++) {
       if (signal?.aborted) throw signal.reason || new Error("Round annullato.");
       const token = await getToken();
+      if (epoch !== sessionEpoch) throw new LoginRequired("Sessione annullata. Accedi nuovamente.");
       if (signal?.aborted) throw signal.reason || new Error("Round annullato.");
       const controller = new AbortController();
+      requests.add(controller);
       const abort = () => controller.abort();
       signal?.addEventListener("abort", abort, { once: true });
       const timer = setTimeout(() => controller.abort(), config.requestTimeoutMs);
@@ -101,9 +133,10 @@
         });
       } catch (error) {
         if (signal?.aborted) throw signal.reason || new Error("Round annullato.");
-        if (error.name === "AbortError") throw new Error("Spotify non risponde. Riprova.");
-        throw error;
-      } finally { clearTimeout(timer); signal?.removeEventListener("abort", abort); }
+        if (epoch !== sessionEpoch) throw new LoginRequired("Sessione annullata. Accedi nuovamente.");
+        throw new core.SpotifyError("NETWORK_ERROR", "Connessione a Spotify interrotta. Controlla la rete e riconnetti Spotify.");
+      } finally { clearTimeout(timer); requests.delete(controller); signal?.removeEventListener("abort", abort); }
+      if (epoch !== sessionEpoch) throw new LoginRequired("Sessione annullata. Accedi nuovamente.");
       if (signal?.aborted) throw signal.reason || new Error("Round annullato.");
       if (response.status === 401 && attempt === 0) {
         if (tokens?.accessToken === token) await getToken(true);
@@ -114,10 +147,13 @@
       const messages = { 403: "Spotify richiede Premium e un account autorizzato per questa app.",
         404: "Dispositivo o traccia Spotify non disponibile.",
         429: "Troppe richieste Spotify. Riprova tra " + (response.headers.get("Retry-After") || "alcuni") + " secondi." };
-      const error = new Error(messages[response.status] || "Errore Spotify (" + response.status + "). Riprova.");
+      const error = new core.SpotifyError(response.status === 404 ? "DEVICE_NOT_READY" : "PLAYBACK_FAILED",
+        messages[response.status] || "Errore Spotify (" + response.status + "). Riprova.");
       error.status = response.status;
       throw error;
     }
   }
-  window.Bamboc.auth = { login, handleRedirect, getToken, api, clear, LoginRequired };
+  window.Bamboc.auth = { login, handleRedirect, getToken, hasValidToken, api, clear, LoginRequired,
+    onInvalidated(callback) { invalidated.add(callback); return () => invalidated.delete(callback); },
+  };
 })();

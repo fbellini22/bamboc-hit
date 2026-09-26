@@ -143,10 +143,10 @@ test("invalid grant clears only owned keys and requests login", async () => {
   await assert.rejects(c.Bamboc.auth.getToken(), c.Bamboc.auth.LoginRequired);
   assert.equal(c.localStorage.getItem("unrelated"),"keep");
 });
-test("temporary refresh failure keeps refresh token available for retry", async () => {
+test("failed refresh clears session and requires a fresh login, including temporary errors", async () => {
   const c = authFixture(expired, async () => response(503));
   await assert.rejects(c.Bamboc.auth.getToken(), /503/);
-  assert.ok(c.localStorage.getItem("bamboc.spotify.tokens"));
+  assert.equal(c.localStorage.getItem("bamboc.spotify.tokens"),null);
 });
 test("API refreshes once on 401 and retries original command once", async () => {
   const calls = [];
@@ -159,7 +159,7 @@ test("API refreshes once on 401 and retries original command once", async () => 
 test("API 403/404/429 are explicit and not refresh loops", async () => {
   for (const status of [403,404,429]) {
     let calls = 0;
-    const c = authFixture({"bamboc.spotify.tokens":JSON.stringify({accessToken:"a",expiresAt:Date.now()+3600000})},
+    const c = authFixture({"bamboc.spotify.tokens":JSON.stringify({accessToken:"a",refreshToken:"r",expiresAt:Date.now()+3600000})},
       async () => {calls++; return response(status,{}, "7");});
     await assert.rejects(c.Bamboc.auth.api("/me/player"), error => error.status === status);
     assert.equal(calls,1);
@@ -199,7 +199,8 @@ test("callback exchanges code and cleans only OAuth parameters", async () => {
 });
 
 function playerFixture(options = {}) {
-  const c = environment({sessionStorage: storage(options.cache ? {"bamboc.spotify.durations.v1": options.cache} : {})});
+  const c = environment({sessionStorage: storage(options.cache ? {"bamboc.spotify.durations.v1": options.cache} : {}),
+    localStorage: storage(options.tokens || {}), fetch: options.fetcher});
   let instance;
   const calls = [], audio = [], history = [], requests = [], instances = [];
   function record(type, target, extra = {}) {
@@ -211,17 +212,20 @@ function playerFixture(options = {}) {
   }
   class FakePlayer {
     constructor(config) {
+      this.oauthToken = config.getOAuthToken;
       this.listeners = {}; this.volume = options.initialVolume ?? config.volume;
       this.state = null; this.disconnected = false;
       this.device = "device" + (instances.length + 1);
       instance = this; instances.push(this);
     }
     addListener(name, callback) { this.listeners[name] = callback; }
+    removeListener(name) { delete this.listeners[name]; }
     emit(name, value) { this.listeners[name]?.(value); }
     connect() {
       this.disconnected = false;
-      if (!options.noReady) this.emit("ready",{device_id:this.device});
-      return Promise.resolve(!options.connectFalse);
+      if (options.authError) this.emit("authentication_error",{});
+      else if (!options.noReady) this.emit("ready",{device_id:options.readyDevice ?? this.device});
+      return options.connectGate || Promise.resolve(!options.connectFalse);
     }
     disconnect() { this.disconnected = true; calls.push("disconnect"); }
     activateElement() { calls.push("activate"); return Promise.resolve(); }
@@ -266,7 +270,9 @@ function playerFixture(options = {}) {
     }
   }
   c.Spotify={Player:FakePlayer};
-  c.Bamboc.auth = {getToken:async()=>"token", api:async(path, {body,signal} = {})=>{
+  c.Bamboc.auth = {getToken:async()=>"token", hasValidToken:()=>true, onInvalidated:()=>()=>{},
+    LoginRequired:class extends core.SpotifyError {constructor(message){super("AUTH_REQUIRED",message);}},
+    api:async(path, {body,signal} = {})=>{
     calls.push(path);
     if (path.startsWith("/me/player/play")) {
       const device = new URL("https://test" + path).searchParams.get("device_id");
@@ -280,6 +286,15 @@ function playerFixture(options = {}) {
       record("play",target);target.emit("player_state_changed",target.state);
     }
   }};
+  if (options.realAuth) {
+    const transport=c.Bamboc.auth.api;
+    if (!options.fetcher) c.fetch=async(url,request)=>{
+      await transport(url.replace("https://api.spotify.com/v1",""),{
+        body:request.body ? JSON.parse(request.body) : undefined,signal:request.signal});
+      return response(204);
+    };
+    load(c,"spotify-auth.js");
+  }
   load(c,"player.js");
   return {c, api:c.Bamboc.playback, calls, audio, history, requests, instances, options,
     get instance(){return instance;},
@@ -403,30 +418,33 @@ function fakeClock() {
   return clock;
 }
 async function flush() { for(let i=0;i<30;i++) await Promise.resolve(); }
-function appFixture({clock, preplayMs=0, songs=[song]} = {}) {
+function appFixture({clock, preplayMs=0, songs=[song], context, realSession=false} = {}) {
   const elements = new Map(), listeners = {}, docListeners = {}, windowListeners = {};
   function element(id) {
     if (!elements.has(id)) elements.set(id,{
       hidden:false,disabled:false,textContent:"",style:{},children:[],isConnected:true,classList:{add(){},toggle(){}},
-      addEventListener(type, fn){listeners[id+":"+type]=fn;},setAttribute(){},focus(){},
+      attributes:{},addEventListener(type, fn){listeners[id+":"+type]=fn;},setAttribute(key,value){this.attributes[key]=value;},focus(){},
       append(...nodes){this.children.push(...nodes);},replaceChildren(...nodes){this.children=nodes;},
     });
     return elements.get(id);
   }
-  const c=environment({
+  const extras={
     document:{title:"Test",getElementById:element,createElement:()=>element("created"+elements.size),
       addEventListener:(name,fn)=>{docListeners[name]=fn;}},
     navigator:{},addEventListener:(name,fn)=>{windowListeners[name]=fn;},
     requestAnimationFrame:()=>1,cancelAnimationFrame(){},SONGS:songs,
     ...(clock ? {Date:clock.Date,setTimeout:clock.schedule,clearTimeout:clock.unschedule} : {}),
-  });
+  };
+  const c=context ? Object.assign(context,extras) : environment(extras);
   c.Bamboc.config.preplayMs=preplayMs;
   if (clock) c.Bamboc.core={...core,preplayCountdown:(duration,tick,options)=>
     core.preplayCountdown(duration,tick,{...options,now:clock.now,schedule:clock.schedule,unschedule:clock.unschedule})};
   const calls=[]; let decoded, pause=Promise.resolve(), nextPlay=Promise.resolve(null), errors, states;
-  c.Bamboc.auth={handleRedirect:async()=>{},getToken:async()=>"a",LoginRequired:class extends Error{},login:async()=>{}};
+  if (!realSession) c.Bamboc.auth={handleRedirect:async()=>{},getToken:async()=>"a",hasValidToken:()=>true,
+    onInvalidated:()=>()=>{},clear(){},LoginRequired:class extends Error{},login:async()=>{}};
   c.Bamboc.scanner={start:async callback=>{decoded=callback;calls.push("scan");},stop:async()=>{calls.push("camera stop");}};
-  c.Bamboc.playback={
+  if (!realSession) c.Bamboc.playback={
+    isReady:()=>true,resetSession(){calls.push("disconnect");},
     activate:()=>{calls.push("activate");return Promise.resolve();},prepare:async()=>{},
     ensureActive:async()=>{},
     play:async(_song,_trace,{signal,readyToStart})=>{
@@ -725,6 +743,220 @@ test("camera shutdown failure prevents PLAYING and exposes retry STOP", async ()
   await f.scan("spotify:track:"+id);
   assert.equal(f.element("timer").hidden,true);assert.equal(f.element("reveal-btn").disabled,true);
   assert.equal(f.element("reset-btn").textContent,"RIPROVA STOP");
+});
+
+const savedSession = () => ({"bamboc.spotify.tokens":JSON.stringify({accessToken:"saved",refreshToken:"refresh",expiresAt:Date.now()+3600000})});
+function sessionFixture(options={}) {
+  const player=playerFixture({realAuth:true,tokens:savedSession(),...options});
+  if(options.callback) {
+    player.c.location.href=options.callback;
+    if(options.pkce) player.c.sessionStorage.setItem("bamboc.spotify.pkce",JSON.stringify(options.pkce));
+  }
+  const cleaned=[];
+  player.c.history.replaceState=(_a,_b,value)=>{cleaned.push(value);player.c.location.href=new URL(value,player.c.location.origin).href;};
+  const app=appFixture({context:player.c,realSession:true});
+  return {...app,player,cleaned};
+}
+function assertLoggedOut(f) {
+  assert.equal(f.element("login-screen").hidden,false);
+  assert.equal(f.element("login-btn").disabled,false);
+  assert.equal(f.element("scan-btn").disabled,true);
+  assert.equal(f.element("game-screen").hidden,true);
+  assert.equal(f.player.api.isReady(),false);
+  assert.equal(f.c.localStorage.getItem("bamboc.spotify.tokens"),null);
+}
+test("session: first visit without tokens shows working LOGIN and cannot scan or initialize SDK", async()=>{
+  const f=sessionFixture({tokens:{}});await flush();assertLoggedOut(f);
+  f.click("scan-btn");f.click("reset-btn");await flush();
+  assert.equal(f.calls.includes("scan"),false);assert.equal(f.player.instances.length,0);
+  await f.click("login-btn");
+  assert.equal(new URL(f.c.location.assigned).hostname,"accounts.spotify.com");
+  assert.ok(f.c.sessionStorage.getItem("bamboc.spotify.pkce"));
+});
+test("session: expired token refreshes before player init and valid reload reaches READY", async()=>{
+  let calls=0;
+  const f=sessionFixture({tokens:expired,fetcher:async()=>{calls++;return response(200,{access_token:"fresh",expires_in:3600});}});
+  await flush();assert.equal(calls,1);assert.equal(f.player.api.isReady(),true);assert.equal(f.element("scan-btn").disabled,false);
+  const reload=sessionFixture({tokens:{"bamboc.spotify.tokens":f.c.localStorage.getItem("bamboc.spotify.tokens")}});
+  await flush();assert.equal(reload.element("scan-btn").disabled,false);
+  f.pagehide();reload.pagehide();
+});
+test("session: every refresh failure returns to LOGIN, clears only owned keys, no SDK", async()=>{
+  for(const status of [400,401,503]) {
+    const f=sessionFixture({tokens:{...expired,unrelated:"keep"},fetcher:async()=>response(status)});
+    await flush();assertLoggedOut(f);assert.equal(f.player.instances.length,0);
+    assert.equal(f.c.localStorage.getItem("unrelated"),"keep");
+    f.click("connect-btn");f.click("reset-btn");await flush();assert.equal(f.player.requests.length,0);
+  }
+});
+test("session: corrupt and partial storage cannot grant login, including bogus expiry", async()=>{
+  for(const value of ['{broken','null','42','[]',JSON.stringify({accessToken:"a"}),
+    JSON.stringify({accessToken:"a",expiresAt:Date.now()+3600000}),
+    JSON.stringify({accessToken:{},refreshToken:"r",expiresAt:Date.now()+3600000}),
+    JSON.stringify({accessToken:"a",refreshToken:"r",expiresAt:"9999999999999"}),
+    JSON.stringify({accessToken:"a",refreshToken:"r",expiresAt:1e100})]) {
+    const f=sessionFixture({tokens:{"bamboc.spotify.tokens":value}});await flush();assertLoggedOut(f);
+    assert.equal(f.player.instances.length,0);
+  }
+});
+test("session: valid OAuth callback cleans URL then connects; SCAN requires READY", async()=>{
+  const f=sessionFixture({tokens:{},noReady:true,callback:"https://test.example/game/?code=c&state=s&debug=1#top",
+    pkce:{verifier:"v",state:"s",createdAt:Date.now()},fetcher:async()=>response(200,{access_token:"a",refresh_token:"r",expires_in:3600})});
+  await flush();assert.equal(f.element("scan-btn").disabled,true);assert.equal(f.player.instances.length,1);
+  assert.equal(f.element("status").attributes["data-spotify-state"],"PLAYER_CONNECTING");
+  assert.deepEqual(f.cleaned,["/game/?debug=1#top"]);
+  f.click("scan-btn");await flush();assert.equal(f.calls.includes("scan"),false);
+  f.player.instance.emit("ready",{device_id:f.player.instance.device});await flush();
+  assert.equal(f.element("scan-btn").disabled,false);f.pagehide();
+});
+test("session: invalid/incomplete OAuth callback clears old tokens, cleans URL and allows new login", async()=>{
+  for(const query of ["code=c&state=wrong","state=s","code=&state=s","error=access_denied&state=s"]) {
+    const f=sessionFixture({callback:"https://test.example/game/?"+query,pkce:{verifier:"v",state:"s",createdAt:Date.now()}});
+    await flush();assertLoggedOut(f);assert.equal(f.player.instances.length,0);
+    assert.equal(f.c.location.href,"https://test.example/game/");await f.click("login-btn");
+    assert.equal(new URL(f.c.location.assigned).hostname,"accounts.spotify.com");
+  }
+});
+test("session: READY without valid device and failed connect never enable SCAN", async()=>{
+  for(const options of [{readyDevice:""},{connectFalse:true}]) {
+    const f=sessionFixture(options);await flush();
+    assert.equal(f.element("scan-btn").disabled,true);assert.equal(f.player.api.isReady(),false);
+    assert.equal(f.element("connect-btn").hidden,false);f.click("scan-btn");await flush();
+    assert.equal(f.calls.includes("scan"),false);f.pagehide();
+  }
+});
+test("session: READY event alone is insufficient until connect promise succeeds", async()=>{
+  const gate=defer(),f=sessionFixture({connectGate:gate.promise});await flush();
+  assert.equal(f.element("scan-btn").disabled,true);assert.equal(f.player.api.isReady(),false);
+  gate.resolve(true);await flush();assert.equal(f.element("scan-btn").disabled,false);f.pagehide();
+});
+test("session: readiness timeout offers connection retry, never playback retry", async()=>{
+  const f=sessionFixture({noReady:true});await delay(100);
+  assert.equal(f.element("scan-btn").disabled,true);assert.equal(f.element("connect-btn").hidden,false);
+  assert.equal(f.element("status").attributes["data-error-code"],"PLAYER_NOT_READY");
+  f.player.options.noReady=false;await f.click("connect-btn");await flush();
+  assert.equal(f.element("scan-btn").disabled,false);assert.equal(f.player.requests.length,0);f.pagehide();
+});
+test("session: SDK authentication failure before any round returns to LOGIN", async()=>{
+  const f=sessionFixture({authError:true});await flush();assertLoggedOut(f);
+  assert.ok(f.player.instances.every(instance=>instance.disconnected));
+});
+test("session: auth lost during PREPARING aborts round; retry cannot start playback", async()=>{
+  const gate=defer(),f=sessionFixture({apiGate:gate.promise});await flush();f.click("scan-btn");await flush();
+  const scan=f.scan("spotify:track:"+id);await delay(5);
+  const request=f.player.requests[0];assert.ok(request);
+  f.player.instance.emit("authentication_error",{});
+  await scan;assertLoggedOut(f);assert.equal(request.signal.aborted,true);assert.equal(f.element("timer").hidden,true);
+  const count=f.player.requests.length;f.click("reset-btn");f.click("connect-btn");await flush();
+  assert.equal(f.player.requests.length,count);gate.resolve();await flush();assert.equal(f.player.audio.length,0);
+});
+test("session: auth lost during PLAYING cancels UI/timer/player/camera", async()=>{
+  const f=sessionFixture();await flush();f.click("scan-btn");await flush();
+  await f.scan("spotify:track:"+id);assert.equal(f.element("timer").hidden,false);
+  const old=f.player.instance;old.emit("authentication_error",{});await flush();assertLoggedOut(f);
+  assert.equal(old.disconnected,true);assert.equal(f.element("timer").hidden,true);
+  assert.equal(f.element("result").hidden,true);assert.ok(f.calls.includes("camera stop"));
+});
+test("session: repeated playback 401 refreshes once then resets to LOGIN", async()=>{
+  let tokenCalls=0,apiCalls=0;
+  const f=sessionFixture({fetcher:async url=>{
+    if(url.includes("/api/token")){tokenCalls++;return response(200,{access_token:"fresh",expires_in:3600});}
+    apiCalls++;return response(401);
+  }});await flush();
+  f.click("scan-btn");await flush();await f.scan("spotify:track:"+id);
+  await flush();assertLoggedOut(f);assert.equal(tokenCalls,1);assert.equal(apiCalls,2);
+});
+test("session: logout invalidates device and old callbacks cannot revive it during fresh login", async()=>{
+  const f=sessionFixture();await flush();const old=f.player.instance;
+  f.click("logout-btn");await flush();assertLoggedOut(f);
+  old.emit("ready",{device_id:old.device});old.emit("authentication_error",{});await flush();assertLoggedOut(f);
+  await f.click("login-btn");const transaction=f.c.sessionStorage.getItem("bamboc.spotify.pkce");
+  old.emit("not_ready",{});old.emit("authentication_error",{});await flush();
+  assert.equal(f.c.sessionStorage.getItem("bamboc.spotify.pkce"),transaction);
+  assert.equal(f.player.api.isReady(),false);
+});
+test("session: not_ready while idle blocks scan and reconnection does not start a song", async()=>{
+  const f=sessionFixture();await flush();f.player.instance.emit("not_ready",{});await flush();
+  assert.equal(f.element("scan-btn").disabled,true);assert.equal(f.element("connect-btn").hidden,false);
+  f.click("scan-btn");assert.equal(f.calls.includes("scan"),false);
+  f.click("connect-btn");await flush();assert.equal(f.element("scan-btn").disabled,false);
+  assert.equal(f.player.requests.length,0);f.pagehide();
+});
+test("production OAuth redirect remains HTTPS Pages with exact trailing slash and no callback query", async()=>{
+  const c=environment({location:{hostname:"fbellini22.github.io",origin:"https://fbellini22.github.io",
+    pathname:"/bamboc-hit/index.html",search:"?code=old&state=old",href:"https://fbellini22.github.io/bamboc-hit/index.html?code=old&state=old",
+    assign(value){this.assigned=value;}}});
+  load(c,"spotify-auth.js");await c.Bamboc.auth.login();
+  assert.equal(c.Bamboc.config.redirectUri,"https://fbellini22.github.io/bamboc-hit/");
+  assert.equal(new URL(c.location.assigned).searchParams.get("redirect_uri"),c.Bamboc.config.redirectUri);
+});
+test("session: network refresh failure and malformed token response require LOGIN", async()=>{
+  for(const fetcher of [async()=>{throw new TypeError("offline");},async()=>response(200,{access_token:"bad",expires_in:"3600"})]) {
+    const f=sessionFixture({tokens:expired,fetcher});await flush();assertLoggedOut(f);assert.equal(f.player.instances.length,0);
+  }
+});
+
+test("session: missing PKCE verifier rejects callback even with valid saved tokens", async()=>{
+  const f=sessionFixture({callback:"https://test.example/game/?code=c&state=s"});await flush();
+  assertLoggedOut(f);assert.equal(f.player.instances.length,0);assert.equal(f.c.location.href,"https://test.example/game/");
+});
+test("session: SDK token renewal failure during PLAYING logs out without delivering an invalid token", async()=>{
+  const f=sessionFixture();await flush();f.click("scan-btn");await flush();await f.scan("spotify:track:"+id);
+  f.c.Date=class extends Date {static now(){return Date.now()+7200000;}};
+  f.c.fetch=async()=>response(503);let delivered=false;
+  f.player.instance.oauthToken(()=>{delivered=true;});await flush();assertLoggedOut(f);
+  assert.equal(delivered,false);assert.equal(f.element("timer").hidden,true);
+});
+test("session: token expiry before SCAN refreshes connection without opening camera", async()=>{
+  const f=sessionFixture();await flush();f.c.Date=class extends Date {static now(){return Date.now()+7200000;}};
+  let refreshes=0;f.c.fetch=async()=>{refreshes++;return response(200,{access_token:"fresh",expires_in:3600});};
+  await f.click("scan-btn");await flush();
+  assert.equal(refreshes,1);assert.equal(f.element("scan-btn").disabled,false);assert.equal(f.calls.includes("scan"),false);
+  f.click("scan-btn");await flush();assert.equal(f.calls.includes("scan"),true);f.pagehide();
+});
+test("session: token expiry while scanning recovers refresh before another scan, no round", async()=>{
+  const f=sessionFixture();await flush();f.click("scan-btn");await flush();
+  f.c.Date=class extends Date {static now(){return Date.now()+7200000;}};
+  f.c.fetch=async()=>response(200,{access_token:"fresh",expires_in:3600});
+  await f.scan("spotify:track:"+id);await flush();
+  assert.equal(f.element("scan-btn").disabled,false);assert.equal(f.player.requests.length,0);f.pagehide();
+});
+test("session: logout during connect discards late READY/connect success", async()=>{
+  const gate=defer(),f=sessionFixture({connectGate:gate.promise});await flush();const old=f.player.instance;
+  f.click("logout-btn");gate.resolve(true);old.emit("ready",{device_id:old.device});await flush();assertLoggedOut(f);
+  assert.equal(old.disconnected,true);
+});
+test("session: logout during refresh cannot erase a new PKCE transaction on late rejection", async()=>{
+  const gate=defer(),f=sessionFixture({tokens:expired,fetcher:()=>gate.promise});await flush();
+  f.click("logout-btn");await flush();assertLoggedOut(f);await f.click("login-btn");
+  const pkce=f.c.sessionStorage.getItem("bamboc.spotify.pkce");gate.resolve(response(401));await flush();
+  assert.equal(f.c.sessionStorage.getItem("bamboc.spotify.pkce"),pkce);
+  assert.equal(f.element("status").attributes["data-spotify-state"],"AUTHENTICATING");
+  f.pagehide();
+});
+test("session: classified network playback failure offers connection recovery without clearing valid tokens", async()=>{
+  const f=sessionFixture();await flush();f.c.fetch=async()=>{throw new TypeError("offline");};
+  f.click("scan-btn");await flush();await f.scan("spotify:track:"+id);
+  assert.equal(f.element("status").attributes["data-error-code"],"NETWORK_ERROR");
+  assert.equal(f.element("scan-btn").disabled,true);assert.equal(f.element("connect-btn").hidden,false);
+  assert.ok(f.c.localStorage.getItem("bamboc.spotify.tokens"));f.pagehide();
+});
+
+test("session: late audio activation cannot clear a newer login transaction", async()=>{
+  const f=sessionFixture();await flush();const gate=defer();
+  f.c.Bamboc.playback.activate=()=>gate.promise;f.click("scan-btn");await flush();
+  f.click("logout-btn");await f.click("login-btn");
+  const pkce=f.c.sessionStorage.getItem("bamboc.spotify.pkce");gate.resolve();await flush();
+  assert.equal(f.c.sessionStorage.getItem("bamboc.spotify.pkce"),pkce);
+  assert.equal(f.element("status").attributes["data-spotify-state"],"AUTHENTICATING");
+  assert.equal(f.calls.includes("scan"),false);f.pagehide();
+});
+test("session: late round stop cannot close the camera of a newer session", async()=>{
+  const f=sessionFixture();await flush();f.click("scan-btn");await flush();await f.scan("spotify:track:"+id);
+  const gate=defer(),old=f.player.instance;old.pause=()=>gate.promise;f.click("reveal-btn");await flush();
+  f.click("logout-btn");await flush();const stops=f.calls.filter(call=>call==="camera stop").length;
+  old.state={...old.state,paused:true};gate.resolve();await delay(5);
+  assert.equal(f.calls.filter(call=>call==="camera stop").length,stops);assertLoggedOut(f);
 });
 
 let failures=0;

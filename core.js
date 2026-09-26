@@ -1,5 +1,9 @@
 "use strict";
 (function (root) {
+  class SpotifyError extends Error {
+    constructor(code, message) { super(message); this.name = "SpotifyError"; this.code = code; }
+  }
+  function errorCode(error) { return error?.code || "PLAYBACK_FAILED"; }
   const idPattern = /^[A-Za-z0-9]{22}$/;
   function extractTrackId(value) {
     if (typeof value !== "string") return null;
@@ -135,7 +139,7 @@
       tick();
     });
   }
-  const core = { extractTrackId, validateSongs, createCatalog, countdown, randomPosition, RoundState,
+  const core = { SpotifyError, errorCode, extractTrackId, validateSongs, createCatalog, countdown, randomPosition, RoundState,
     withTimeout, abortable, preplayCountdown };
   if (typeof module !== "undefined" && module.exports) module.exports = core;
   else { root.Bamboc = root.Bamboc || {}; root.Bamboc.core = core; }

@@ -2,19 +2,27 @@
 (() => {
   const { config, core, auth, playback, scanner } = window.Bamboc;
   const catalog = core.createCatalog(window.SONGS);
-  const round = new core.RoundState();
+  let round = new core.RoundState();
   const el = id => document.getElementById(id);
   let song = null, startedAt = 0, frame = null, deadlineTimer = null, goTimer = null;
-  let cameraStopped = Promise.resolve(), revealAfterStop = false, authenticated = false;
-  let booting = true, roundId = 0, controller = null, leaving = false;
+  let cameraStopped = Promise.resolve(), revealAfterStop = false;
+  let spotifyState = "AUTH_REQUIRED", sessionId = 0, connecting = null;
+  let roundId = 0, controller = null, leaving = false;
+  function canScan() { return spotifyState === "PLAYER_READY" && auth.hasValidToken() && playback.isReady(); }
 
   function message(text) { el("status").textContent = text; }
   function render() {
     const phase = round.phase;
-    el("login-screen").hidden = authenticated;
-    el("game-screen").hidden = !authenticated;
-    el("scan-btn").hidden = !["idle", "opening"].includes(phase);
-    el("scan-btn").disabled = booting || phase === "opening";
+    const showLogin = ["AUTH_REQUIRED", "AUTHENTICATING"].includes(spotifyState);
+    el("login-screen").hidden = !showLogin;
+    el("login-btn").disabled = spotifyState === "AUTHENTICATING";
+    el("game-screen").hidden = showLogin;
+    el("scan-btn").hidden = spotifyState !== "PLAYER_READY" || !["idle", "opening"].includes(phase);
+    el("scan-btn").disabled = !canScan() || phase === "opening";
+    el("connect-btn").hidden = spotifyState !== "PLAYER_NOT_READY";
+    el("connect-btn").disabled = Boolean(connecting) || !["idle", "revealed"].includes(phase);
+    el("logout-btn").hidden = spotifyState === "AUTH_REQUIRED";
+    el("status").setAttribute("data-spotify-state", spotifyState);
     el("scan-btn").textContent = phase === "opening" ? "APERTURA…" : "SCAN";
     el("scanner-container").hidden = phase !== "scanning";
     el("cancel-btn").hidden = !["opening", "scanning", "preparing"].includes(phase);
@@ -25,7 +33,7 @@
     el("reveal-btn").disabled = phase !== "playing";
     el("go-label").hidden = phase !== "playing" || !goTimer;
     el("reset-btn").hidden = !["revealed", "stopping", "stop-error"].includes(phase);
-    el("reset-btn").disabled = phase === "stopping";
+    el("reset-btn").disabled = phase === "stopping" || (phase === "revealed" && !canScan());
     el("reset-btn").textContent = phase === "stop-error" ? "RIPROVA STOP"
       : phase === "stopping" ? "ARRESTO…" : "NEXT SONG";
     el("result").hidden = !revealAfterStop;
@@ -33,9 +41,56 @@
   }
   function move(phase) { round.move(phase); render(); }
   function report(error) {
+    if (error instanceof auth.LoginRequired || core.errorCode(error) === "AUTH_REQUIRED") {
+      auth.clear(error); return true;
+    }
     message(error.message || "Operazione non riuscita. Riprova.");
-    if (error instanceof auth.LoginRequired) { authenticated = false; render(); }
+    el("status").setAttribute("data-error-code", core.errorCode(error));
     if (config.debug) console.error(error);
+    return false;
+  }
+  function resetSession(error) {
+    ++sessionId; ++roundId; connecting = null;
+    controller?.abort(error); controller = null;
+    clearTimers(); playback.resetSession();
+    round = new core.RoundState(); song = null; revealAfterStop = false;
+    el("result").replaceChildren();
+    cameraStopped = scanner.stop();
+    cameraStopped.catch(() => {}); // A new connection must confirm camera cleanup.
+    spotifyState = "AUTH_REQUIRED";
+    message(error?.message || "Accedi a Spotify per iniziare.");
+    el("status").setAttribute("data-error-code", "AUTH_REQUIRED");
+    render();
+  }
+  async function connectSpotify(callback = false) {
+    if (connecting || leaving) return connecting;
+    const epoch = sessionId;
+    spotifyState = "AUTHENTICATING"; render();
+    message("Verifica accesso a Spotify…");
+    const operation = (async () => {
+      try {
+        if (callback) await auth.handleRedirect();
+        if (epoch !== sessionId || leaving) return;
+        await auth.getToken();
+        if (epoch !== sessionId || leaving) return;
+        spotifyState = "PLAYER_CONNECTING"; render(); message("Connessione a Spotify…");
+        await playback.prepare();
+        if (epoch !== sessionId || leaving) return;
+        cameraStopped = scanner.stop();
+        await core.withTimeout(cameraStopped, config.requestTimeoutMs, "Arresto fotocamera non confermato.");
+        if (epoch !== sessionId || leaving) return;
+        if (!auth.hasValidToken()) throw new auth.LoginRequired("Accedi a Spotify per iniziare.");
+        if (!playback.isReady()) throw new core.SpotifyError("DEVICE_NOT_READY", "Dispositivo Spotify non pronto. Riconnetti Spotify.");
+        spotifyState = "PLAYER_READY"; el("status").setAttribute("data-error-code", ""); message("Premi SCAN per iniziare.");
+      } catch (error) {
+        if (epoch !== sessionId || leaving) return;
+        if (report(error)) return;
+        spotifyState = "PLAYER_NOT_READY"; playback.disconnect();
+      } finally { if (epoch === sessionId && !leaving) render(); }
+    })();
+    connecting = operation;
+    await operation;
+    if (connecting === operation) { connecting = null; render(); }
   }
   function traceRound() {
     const start = performance.now();
@@ -44,7 +99,8 @@
     };
   }
   async function begin() {
-    if (!authenticated || booting || leaving || !["idle", "revealed"].includes(round.phase)) return;
+    if (leaving || !["idle", "revealed"].includes(round.phase) || spotifyState !== "PLAYER_READY") return;
+    if (!canScan()) { await connectSpotify(); return; }
     const id = ++roundId;
     const trace = traceRound();
     trace("audio activation requested");
@@ -58,6 +114,9 @@
     try {
       await activation;
       if (id !== roundId || leaving) return;
+      await auth.getToken();
+      if (id !== roundId || leaving) return;
+      if (!playback.isReady()) throw new core.SpotifyError("DEVICE_NOT_READY", "Dispositivo Spotify non pronto. Riconnetti Spotify.");
       move("scanning");
       // Transfer and track preparation now belong to the post-QR countdown.
       await scanner.start(text => id === roundId ? onScan(text) : true,
@@ -67,16 +126,23 @@
       if (round.phase === "scanning") message("Inquadra il QR di una canzone.");
     } catch (error) {
       if (id !== roundId || leaving) return;
-      report(error);
+      if (report(error)) return;
+      const epoch = sessionId;
       if (round.phase === "opening") move("idle");
       else if (round.phase === "scanning") await finish(false);
-      try { await playback.prepare(); } catch (prepareError) {
-        if (id === roundId && !leaving) report(prepareError);
-      }
+      if (epoch !== sessionId || leaving) return;
+      if (!playback.isReady()) { spotifyState = "PLAYER_NOT_READY"; render(); }
     }
   }
   async function onScan(text) {
     if (round.phase !== "scanning" || leaving) return true;
+    if (!canScan()) {
+      const epoch = sessionId;
+      spotifyState = "PLAYER_NOT_READY"; message("Verifica sessione e connessione Spotify…");
+      await finish(false);
+      if (epoch === sessionId && !leaving && round.phase === "idle") await connectSpotify();
+      return true;
+    }
     const trace = traceRound();
     trace("scan detected");
     const trackId = core.extractTrackId(text);
@@ -120,7 +186,9 @@
         deadlineTimer = setTimeout(tick, Math.max(0, config.roundMs - (Date.now() - startedAt)));
     } catch (error) {
       if (id !== roundId || leaving) return true;
-      report(error);
+      if (report(error)) return true;
+      if (!playback.isReady() || ["DEVICE_NOT_READY", "PLAYER_NOT_READY", "NETWORK_ERROR", "PLAYBACK_NOT_CONFIRMED"].includes(core.errorCode(error)))
+        spotifyState = "PLAYER_NOT_READY";
       await finish(false);
     }
     return true;
@@ -166,13 +234,11 @@
     if (previous === "preparing") controller?.abort(new Error("Round annullato."));
     try {
       await playback.stop();
+      if (id !== roundId || leaving) return;
       // A pending permission prompt/start must not leave the UI stuck forever.
       await core.withTimeout(scanner.stop(), config.requestTimeoutMs, "Arresto fotocamera non confermato.");
       if (id !== roundId || leaving) return;
-      if (!revealAfterStop && authenticated) {
-        try { await playback.prepare(); } catch (error) { report(error); }
-        if (id !== roundId || leaving) return;
-      }
+      if (!playback.isReady()) spotifyState = "PLAYER_NOT_READY";
       move(revealAfterStop ? "revealed" : "idle");
       if (revealAfterStop) { message("Risposta svelata."); el("reset-btn").focus(); }
     } catch (error) {
@@ -183,9 +249,20 @@
     }
   }
   el("login-btn").addEventListener("click", async () => {
-    el("login-btn").disabled = true;
-    try { await auth.login(); } catch (error) { report(error); el("login-btn").disabled = false; }
+    if (spotifyState !== "AUTH_REQUIRED" || leaving) return;
+    const operation = auth.login(); // Clears the old session synchronously before PKCE work.
+    const epoch = sessionId;
+    spotifyState = "AUTHENTICATING"; render(); message("Apertura login Spotify…");
+    try { await operation; } catch (error) {
+      if (epoch !== sessionId || leaving) return;
+      if (!report(error)) { spotifyState = "AUTH_REQUIRED"; render(); }
+    }
   });
+  el("connect-btn").addEventListener("click", () => {
+    if (spotifyState === "PLAYER_NOT_READY" && ["idle", "revealed"].includes(round.phase)) void connectSpotify();
+  });
+  el("logout-btn").addEventListener("click", () => { auth.clear(); });
+  auth.onInvalidated(resetSession);
   el("scan-btn").addEventListener("click", () => { void begin(); });
   el("cancel-btn").addEventListener("click", () => {
     if (["opening", "scanning", "preparing"].includes(round.phase)) {
@@ -208,9 +285,14 @@
     }
   });
   playback.onError(error => {
+    if (leaving) return;
+    if (report(error)) return;
+    if (["DEVICE_NOT_READY", "PLAYER_NOT_READY", "NETWORK_ERROR"].includes(core.errorCode(error)) || !playback.isReady())
+      spotifyState = "PLAYER_NOT_READY";
     if (round.phase === "preparing" || round.phase === "playing") {
-      report(error); void finish(round.phase === "playing");
-    }
+      void finish(round.phase === "playing");
+    } else if (["opening", "scanning"].includes(round.phase)) void finish(false);
+    render();
   });
   playback.onState(state => {
     if (round.phase === "playing" && (!state || state.paused || !playback.matches(state, song.id))) {
@@ -218,7 +300,7 @@
     }
   });
   window.addEventListener("pagehide", () => {
-    leaving = true; ++roundId;
+    leaving = true; ++roundId; ++sessionId;
     clearTimers();
     controller?.abort(new Error("Pagina chiusa."));
     void scanner.stop().catch(() => {});
@@ -231,16 +313,7 @@
       console.warn("Bamboc-Hit: " + catalog.issues.length + " segnalazioni dataset. Vedi DATASET_AUDIT.md.");
       if (config.debug) console.table(catalog.issues);
     }
-    try {
-      await auth.handleRedirect();
-      await auth.getToken();
-      if (leaving) return;
-      authenticated = true; render();
-      message("Preparazione Spotify…");
-      await playback.prepare();
-      if (!leaving) message("Premi SCAN per iniziare.");
-    } catch (error) { if (!leaving) report(error); }
-    finally { booting = false; if (!leaving) render(); }
+    await connectSpotify(true);
   }
   void boot();
 })();
