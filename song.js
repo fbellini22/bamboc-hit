@@ -188,7 +188,7 @@ window.SONGS = [
   {
     id: "0QOFqNjkNJ8fh3yiXZieYg",
     title: "Baila",
-    artist: "Zucchero ",
+    artist: "Zucchero",
     year: "2001",
   },
   {
@@ -241,7 +241,7 @@ window.SONGS = [
   },
   {
     id: "0QlNv7zrkgYIccd7O3VzyT",
-    title: "Bella Vita ",
+    title: "Bella Vita",
     artist: "DJ Antoine",
     year: "2013",
   },
@@ -565,7 +565,7 @@ window.SONGS = [
   },
   {
     id: "0LXXnjBrLOiGVYg5vPBIXR",
-    title: "Eppur mi son scordato di te ",
+    title: "Eppur mi son scordato di te",
     artist: "Mina",
     year: "1985",
   },
@@ -1105,7 +1105,7 @@ window.SONGS = [
   },
   {
     id: "4hfIVhq0F0zFUcrbecsYmo",
-    title: "Let's Get It Started ",
+    title: "Let's Get It Started",
     artist: "Black Eyed Peas",
     year: "2003",
   },
@@ -1318,12 +1318,6 @@ window.SONGS = [
     title: "My Way",
     artist: "Frank Sinatra",
     year: "1969",
-  },
-  {
-    id: "7zrkOMlUmpdS6COxQykfVU",
-    title: "Nessuno Mi Può Giudicare",
-    artist: "Caterina Caselli",
-    year: "1966",
   },
   {
     id: "7zrkOMlUmpdS6COxQykfVU",
@@ -1592,7 +1586,7 @@ window.SONGS = [
   {
     id: "4JhVT1nbnp9eyIU70mUqot",
     title: "Samarcanda",
-    artist: "Roberto Vecchioni ",
+    artist: "Roberto Vecchioni",
     year: "1977",
   },
   {
@@ -1706,7 +1700,7 @@ window.SONGS = [
   {
     id: "2bCQHF9gdG5BNDVuEIEnNk",
     title: "Smooth Criminalr",
-    artist: "Michael Jackson ",
+    artist: "Michael Jackson",
     year: "1987",
   },
   {
@@ -1814,7 +1808,7 @@ window.SONGS = [
   {
     id: "6oWLiyRpo1ibp2vKNxHG0T",
     title: "Sweet Dreams",
-    artist: "Eurythmics ",
+    artist: "Eurythmics",
     year: "1983",
   },
   {
@@ -1915,7 +1909,7 @@ window.SONGS = [
   },
   {
     id: "4hv9MeB0ZuzbFFThnQqLPC",
-    title: "Trinity ",
+    title: "Trinity",
     artist: "Annibale",
     year: "1970",
   },

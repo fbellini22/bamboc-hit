@@ -1,0 +1,14 @@
+{
+  "name": "bamboc-hit",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Gioco musicale vanilla con metadati editoriali locali",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "check": "node scripts/check.mjs",
+    "test": "node tests/run.mjs",
+    "validate:data": "node scripts/validate-data.mjs",
+    "validate:data:ci": "node scripts/validate-data.mjs --baseline",
+    "ci": "npm run check && npm test && npm run validate:data:ci"
+  }
+}

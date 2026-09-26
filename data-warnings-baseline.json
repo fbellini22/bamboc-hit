@@ -1,0 +1,529 @@
+[
+  {
+    "severity": "warning",
+    "code": "artist-separator",
+    "row": 6,
+    "id": "7EM7aTxoicXDjIy3gK6Pnu",
+    "field": "artist",
+    "song": {
+      "id": "7EM7aTxoicXDjIy3gK6Pnu",
+      "title": "A Volte Esagero",
+      "artist": "Marracash;Salmo;Coez",
+      "year": "2015"
+    }
+  },
+  {
+    "severity": "warning",
+    "code": "artist-separator",
+    "row": 24,
+    "id": "4AMwEGVsLR0ApxAhtN4ZQa",
+    "field": "artist",
+    "song": {
+      "id": "4AMwEGVsLR0ApxAhtN4ZQa",
+      "title": "Angela",
+      "artist": "Checco Zalone;",
+      "year": "2009"
+    }
+  },
+  {
+    "severity": "warning",
+    "code": "empty-artist-part",
+    "row": 24,
+    "id": "4AMwEGVsLR0ApxAhtN4ZQa",
+    "field": "artist",
+    "song": {
+      "id": "4AMwEGVsLR0ApxAhtN4ZQa",
+      "title": "Angela",
+      "artist": "Checco Zalone;",
+      "year": "2009"
+    }
+  },
+  {
+    "severity": "warning",
+    "code": "whitespace",
+    "row": 32,
+    "id": "0QOFqNjkNJ8fh3yiXZieYg",
+    "field": "artist",
+    "song": {
+      "id": "0QOFqNjkNJ8fh3yiXZieYg",
+      "title": "Baila",
+      "artist": "Zucchero ",
+      "year": "2001"
+    }
+  },
+  {
+    "severity": "warning",
+    "code": "whitespace",
+    "row": 41,
+    "id": "0QlNv7zrkgYIccd7O3VzyT",
+    "field": "title",
+    "song": {
+      "id": "0QlNv7zrkgYIccd7O3VzyT",
+      "title": "Bella Vita ",
+      "artist": "DJ Antoine",
+      "year": "2013"
+    }
+  },
+  {
+    "severity": "warning",
+    "code": "artist-separator",
+    "row": 47,
+    "id": "7fH13hSOyNoeiDGbjEnTUC",
+    "field": "artist",
+    "song": {
+      "id": "7fH13hSOyNoeiDGbjEnTUC",
+      "title": "Brivido",
+      "artist": "Guè;Marracash",
+      "year": "2013"
+    }
+  },
+  {
+    "severity": "warning",
+    "code": "artist-separator",
+    "row": 49,
+    "id": "57RGKNBUbfIBqMFEfE8CxK",
+    "field": "artist",
+    "song": {
+      "id": "57RGKNBUbfIBqMFEfE8CxK",
+      "title": "Buona sera",
+      "artist": "Louis Prima;",
+      "year": "1956"
+    }
+  },
+  {
+    "severity": "warning",
+    "code": "empty-artist-part",
+    "row": 49,
+    "id": "57RGKNBUbfIBqMFEfE8CxK",
+    "field": "artist",
+    "song": {
+      "id": "57RGKNBUbfIBqMFEfE8CxK",
+      "title": "Buona sera",
+      "artist": "Louis Prima;",
+      "year": "1956"
+    }
+  },
+  {
+    "severity": "warning",
+    "code": "artist-separator",
+    "row": 63,
+    "id": "5QNEUi7oFTKcOrEMzLA9uV",
+    "field": "artist",
+    "song": {
+      "id": "5QNEUi7oFTKcOrEMzLA9uV",
+      "title": "Chi Non Lavora Non Fa L'Amore",
+      "artist": "Claudia Mori,Adriano Celentano",
+      "year": "1970"
+    }
+  },
+  {
+    "severity": "warning",
+    "code": "artist-separator",
+    "row": 84,
+    "id": "008wXvCVu8W8vCbq5VQDlC",
+    "field": "artist",
+    "song": {
+      "id": "008wXvCVu8W8vCbq5VQDlC",
+      "title": "Django",
+      "artist": "Luis Bacalov;Rocky Roberts",
+      "year": "1985"
+    }
+  },
+  {
+    "severity": "warning",
+    "code": "whitespace",
+    "row": 95,
+    "id": "0LXXnjBrLOiGVYg5vPBIXR",
+    "field": "title",
+    "song": {
+      "id": "0LXXnjBrLOiGVYg5vPBIXR",
+      "title": "Eppur mi son scordato di te ",
+      "artist": "Mina",
+      "year": "1985"
+    }
+  },
+  {
+    "severity": "warning",
+    "code": "artist-separator",
+    "row": 99,
+    "id": "0d28khcov6AiegSCpG5TuT",
+    "field": "artist",
+    "song": {
+      "id": "0d28khcov6AiegSCpG5TuT",
+      "title": "Feel Good Inc.",
+      "artist": "Gorillaz;De La Soul",
+      "year": "2005"
+    }
+  },
+  {
+    "severity": "warning",
+    "code": "artist-separator",
+    "row": 103,
+    "id": "3u5N55tHf7hXATSQrjBh2q",
+    "field": "artist",
+    "song": {
+      "id": "3u5N55tHf7hXATSQrjBh2q",
+      "title": "Freed From Desire",
+      "artist": "Gala;Molella;Phil Jay",
+      "year": "1997"
+    }
+  },
+  {
+    "severity": "warning",
+    "code": "artist-separator",
+    "row": 111,
+    "id": "5XJMc1j7M2b4l5v6fBYaNO",
+    "field": "artist",
+    "song": {
+      "id": "5XJMc1j7M2b4l5v6fBYaNO",
+      "title": "giochi di gambe",
+      "artist": "Giorgio Poi;faccianuvola",
+      "year": "2025"
+    }
+  },
+  {
+    "severity": "warning",
+    "code": "artist-separator",
+    "row": 162,
+    "id": "6oYcyS6salzWI1ysjEScFh",
+    "field": "artist",
+    "song": {
+      "id": "6oYcyS6salzWI1ysjEScFh",
+      "title": "LA CODA DEL DIAVOLO (con ELODIE)",
+      "artist": "Rkomi;Elodie",
+      "year": "2021"
+    }
+  },
+  {
+    "severity": "warning",
+    "code": "artist-separator",
+    "row": 184,
+    "id": "4kKdvXD0ez7jp1296JmAts",
+    "field": "artist",
+    "song": {
+      "id": "4kKdvXD0ez7jp1296JmAts",
+      "title": "Let It Snow! Let It Snow! Let It Snow!",
+      "artist": "Frank Sinatra;B. Swanson Quartet",
+      "year": "1950"
+    }
+  },
+  {
+    "severity": "warning",
+    "code": "whitespace",
+    "row": 185,
+    "id": "4hfIVhq0F0zFUcrbecsYmo",
+    "field": "title",
+    "song": {
+      "id": "4hfIVhq0F0zFUcrbecsYmo",
+      "title": "Let's Get It Started ",
+      "artist": "Black Eyed Peas",
+      "year": "2003"
+    }
+  },
+  {
+    "severity": "warning",
+    "code": "artist-separator",
+    "row": 188,
+    "id": "6JtY7BCKnfIlKoiglSMZhl",
+    "field": "artist",
+    "song": {
+      "id": "6JtY7BCKnfIlKoiglSMZhl",
+      "title": "Lo sto sognando",
+      "artist": "Checco Zalone;",
+      "year": "2009"
+    }
+  },
+  {
+    "severity": "warning",
+    "code": "empty-artist-part",
+    "row": 188,
+    "id": "6JtY7BCKnfIlKoiglSMZhl",
+    "field": "artist",
+    "song": {
+      "id": "6JtY7BCKnfIlKoiglSMZhl",
+      "title": "Lo sto sognando",
+      "artist": "Checco Zalone;",
+      "year": "2009"
+    }
+  },
+  {
+    "severity": "warning",
+    "code": "artist-separator",
+    "row": 189,
+    "id": "15JINEqzVMv3SvJTAXAKED",
+    "field": "artist",
+    "song": {
+      "id": "15JINEqzVMv3SvJTAXAKED",
+      "title": "Love the Way You Lie",
+      "artist": "Eminem;Rihanna",
+      "year": "2010"
+    }
+  },
+  {
+    "severity": "warning",
+    "code": "artist-separator",
+    "row": 212,
+    "id": "6qdMhG7pRFi0csRlFGvLE4",
+    "field": "artist",
+    "song": {
+      "id": "6qdMhG7pRFi0csRlFGvLE4",
+      "title": "MILLE – feat. Orietta Berti",
+      "artist": "Fedez, Achille Lauro, Orietta Berti",
+      "year": "2021"
+    }
+  },
+  {
+    "severity": "warning",
+    "code": "artist-separator",
+    "row": 214,
+    "id": "5dcyltc1ataieXIeTqhH3t",
+    "field": "artist",
+    "song": {
+      "id": "5dcyltc1ataieXIeTqhH3t",
+      "title": "Missili",
+      "artist": "Frah Quintale;Giorgio Poi",
+      "year": "2018"
+    }
+  },
+  {
+    "severity": "warning",
+    "code": "duplicate-id",
+    "row": 222,
+    "id": "7zrkOMlUmpdS6COxQykfVU",
+    "field": "id",
+    "otherRow": 221,
+    "song": {
+      "id": "7zrkOMlUmpdS6COxQykfVU",
+      "title": "Nessuno Mi Può Giudicare",
+      "artist": "Caterina Caselli",
+      "year": "1966"
+    },
+    "otherSong": {
+      "id": "7zrkOMlUmpdS6COxQykfVU",
+      "title": "Nessuno Mi Può Giudicare",
+      "artist": "Caterina Caselli",
+      "year": "1966"
+    }
+  },
+  {
+    "severity": "warning",
+    "code": "duplicate-entry",
+    "row": 222,
+    "id": "7zrkOMlUmpdS6COxQykfVU",
+    "field": null,
+    "otherRow": 221,
+    "song": {
+      "id": "7zrkOMlUmpdS6COxQykfVU",
+      "title": "Nessuno Mi Può Giudicare",
+      "artist": "Caterina Caselli",
+      "year": "1966"
+    },
+    "otherSong": {
+      "id": "7zrkOMlUmpdS6COxQykfVU",
+      "title": "Nessuno Mi Può Giudicare",
+      "artist": "Caterina Caselli",
+      "year": "1966"
+    }
+  },
+  {
+    "severity": "warning",
+    "code": "artist-separator",
+    "row": 239,
+    "id": "4M8filny20Mwlc2gnvtcgU",
+    "field": "artist",
+    "song": {
+      "id": "4M8filny20Mwlc2gnvtcgU",
+      "title": "P.E.S.",
+      "artist": "Club Dogo;Giuliano Palma",
+      "year": "2012"
+    }
+  },
+  {
+    "severity": "warning",
+    "code": "artist-separator",
+    "row": 240,
+    "id": "5lmjRquEuSSRCYOBsTJRWq",
+    "field": "artist",
+    "song": {
+      "id": "5lmjRquEuSSRCYOBsTJRWq",
+      "title": "Paperella Gay",
+      "artist": "SpJockey;Crypto",
+      "year": "2016"
+    }
+  },
+  {
+    "severity": "warning",
+    "code": "artist-separator",
+    "row": 256,
+    "id": "0Oj0nsrBu8YrJdR84VWJV0",
+    "field": "artist",
+    "song": {
+      "id": "0Oj0nsrBu8YrJdR84VWJV0",
+      "title": "Quarantaquattro gatti",
+      "artist": "Piccolo Coro dell'Antoniano;Zecchino d'Oro",
+      "year": "1996"
+    }
+  },
+  {
+    "severity": "warning",
+    "code": "duplicate-id",
+    "row": 260,
+    "id": "515XcapFOMtOOiGU31UqNp",
+    "field": "id",
+    "otherRow": 46,
+    "song": {
+      "id": "515XcapFOMtOOiGU31UqNp",
+      "title": "Rimmel",
+      "artist": "Francesco De Gregori",
+      "year": "1975"
+    },
+    "otherSong": {
+      "id": "515XcapFOMtOOiGU31UqNp",
+      "title": "Bohemian Rhapsody",
+      "artist": "Queen",
+      "year": "1975"
+    }
+  },
+  {
+    "severity": "warning",
+    "code": "whitespace",
+    "row": 266,
+    "id": "4JhVT1nbnp9eyIU70mUqot",
+    "field": "artist",
+    "song": {
+      "id": "4JhVT1nbnp9eyIU70mUqot",
+      "title": "Samarcanda",
+      "artist": "Roberto Vecchioni ",
+      "year": "1977"
+    }
+  },
+  {
+    "severity": "warning",
+    "code": "artist-separator",
+    "row": 279,
+    "id": "3kXoKlD84c6OmIcOLfrfEs",
+    "field": "artist",
+    "song": {
+      "id": "3kXoKlD84c6OmIcOLfrfEs",
+      "title": "September",
+      "artist": "Earth, Wind & Fire",
+      "year": "1978"
+    }
+  },
+  {
+    "severity": "warning",
+    "code": "artist-separator",
+    "row": 282,
+    "id": "2VxeLyX666F8uXCJ0dZF8B",
+    "field": "artist",
+    "song": {
+      "id": "2VxeLyX666F8uXCJ0dZF8B",
+      "title": "Shallow",
+      "artist": "Lady Gaga, Bradley Cooper",
+      "year": "2018"
+    }
+  },
+  {
+    "severity": "warning",
+    "code": "possibly-truncated-artist",
+    "row": 283,
+    "id": "0CuTlmtd8SLVMzzEWcet3B",
+    "field": "artist",
+    "song": {
+      "id": "0CuTlmtd8SLVMzzEWcet3B",
+      "title": "Siamo Una Squadra Fortissimi",
+      "artist": "Siamo Una Squadra Fo",
+      "year": "2007"
+    }
+  },
+  {
+    "severity": "warning",
+    "code": "whitespace",
+    "row": 285,
+    "id": "2bCQHF9gdG5BNDVuEIEnNk",
+    "field": "artist",
+    "song": {
+      "id": "2bCQHF9gdG5BNDVuEIEnNk",
+      "title": "Smooth Criminalr",
+      "artist": "Michael Jackson ",
+      "year": "1987"
+    }
+  },
+  {
+    "severity": "warning",
+    "code": "possible-title-typo",
+    "row": 285,
+    "id": "2bCQHF9gdG5BNDVuEIEnNk",
+    "field": "title",
+    "song": {
+      "id": "2bCQHF9gdG5BNDVuEIEnNk",
+      "title": "Smooth Criminalr",
+      "artist": "Michael Jackson ",
+      "year": "1987"
+    }
+  },
+  {
+    "severity": "warning",
+    "code": "whitespace",
+    "row": 303,
+    "id": "6oWLiyRpo1ibp2vKNxHG0T",
+    "field": "artist",
+    "song": {
+      "id": "6oWLiyRpo1ibp2vKNxHG0T",
+      "title": "Sweet Dreams",
+      "artist": "Eurythmics ",
+      "year": "1983"
+    }
+  },
+  {
+    "severity": "warning",
+    "code": "artist-separator",
+    "row": 310,
+    "id": "58uxzfDiTqLqEfNyO3ch21",
+    "field": "artist",
+    "song": {
+      "id": "58uxzfDiTqLqEfNyO3ch21",
+      "title": "Tex-Mex",
+      "artist": "Mina;Ivano Fossati",
+      "year": "2019"
+    }
+  },
+  {
+    "severity": "warning",
+    "code": "whitespace",
+    "row": 320,
+    "id": "4hv9MeB0ZuzbFFThnQqLPC",
+    "field": "title",
+    "song": {
+      "id": "4hv9MeB0ZuzbFFThnQqLPC",
+      "title": "Trinity ",
+      "artist": "Annibale",
+      "year": "1970"
+    }
+  },
+  {
+    "severity": "warning",
+    "code": "possible-title-typo",
+    "row": 326,
+    "id": "4ONboWX5n2926t6TcJEGHh",
+    "field": "title",
+    "song": {
+      "id": "4ONboWX5n2926t6TcJEGHh",
+      "title": "un estate al mare",
+      "artist": "Giuni Russo",
+      "year": "1982"
+    }
+  },
+  {
+    "severity": "error",
+    "code": "conflicting-id",
+    "row": 260,
+    "id": "515XcapFOMtOOiGU31UqNp",
+    "song": {
+      "id": "515XcapFOMtOOiGU31UqNp",
+      "title": "Rimmel",
+      "artist": "Francesco De Gregori",
+      "year": "1975"
+    }
+  }
+]
