@@ -17,7 +17,6 @@
     <script defer src="app.js"></script>
   </head>
   <body>
-<<<<<<< ours
     <main>
       <section id="login-screen" class="screen">
         <h1 class="title">Bamboc-Hit</h1>
@@ -48,83 +47,5 @@
       <p id="status" role="status" aria-live="polite"></p>
       <noscript>Per giocare devi abilitare JavaScript.</noscript>
     </main>
-=======
-    <!-- LOGIN SCREEN -->
-    <section id="login-screen" class="screen">
-      <h1 class="title">Bamboc-Hit</h1>
-
-      <button class="primary-btn" onclick="redirectToSpotifyLogin()">
-        Login con Spotify
-      </button>
-    </section>
-
-    <!-- GAME SCREEN -->
-    <section id="game-screen" class="screen">
-      <h1 class="title">Bamboc-Hit</h1>
-
-      <!-- SCAN -->
-      <button class="primary-btn" onclick="initPlayerAndScan()">SCAN</button>
-      <!-- SCANNER -->
-      <div class="scanner-container">
-        <div id="reader"></div>
-      </div>
-
-      <!-- TIMER -->
-      <div class="timer">
-        <svg class="progress-ring" width="180" height="180">
-          <circle class="progress-ring-bg" cx="90" cy="90" r="80" />
-
-          <circle
-            id="progress-ring-circle"
-            class="progress-ring-circle"
-            cx="90"
-            cy="90"
-            r="80"
-          />
-        </svg>
-
-        <div id="countdown" class="timer-text">30</div>
-      </div>
-
-      <!-- REVEAL -->
-      <button
-        id="reveal-btn"
-        class="primary-btn"
-        onclick="revealEarly()"
-        style="display: none"
-      >
-        REVEAL
-      </button>
-
-      <!-- RESULT -->
-      <div id="result" class="card-container"></div>
-
-      <!-- NEXT -->
-      <button
-        id="reset-btn"
-        class="primary-btn"
-        onclick="resetGame()"
-        style="display: none"
-      >
-        NEXT SONG
-      </button>
-
-      <!-- DEBUG -->
-      <div id="debug" style="margin-top: 10px; font-size: 12px"></div>
-    </section>
-
-    <!-- SCRIPTS -->
-
-    <script src="config.js"></script>
-    <script src="spotify-auth.js"></script>
-    <script src="player.js"></script>
-    <script src="scanner.js"></script>
-
-    <!-- 🔥 DATI -->
-    <script src="song.js"></script>
-
-    <!-- 🔥 LOGICA -->
-    <script src="app.js"></script>
->>>>>>> theirs
   </body>
 </html>

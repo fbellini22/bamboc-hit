@@ -1,104 +1,20 @@
-<<<<<<< ours
 "use strict";
 (() => {
   const { config } = window.Bamboc;
   const tokenKey = "bamboc.spotify.tokens", pkceKey = "bamboc.spotify.pkce";
-  let tokens = null, refreshing = null;
+  let tokens = null, refreshing = null, sessionEpoch = 0;
   try { tokens = JSON.parse(localStorage.getItem(tokenKey)); } catch { /* Memory-only session. */ }
   class LoginRequired extends Error {}
   function clear() {
+    sessionEpoch++;
     tokens = null;
-    for (const key of [tokenKey, "access_token", "verifier"]) {
+    for (const key of [tokenKey, "access_token", "refresh_token", "token_expires_at", "verifier"]) {
       try { localStorage.removeItem(key); } catch { /* Storage may be disabled. */ }
     }
     try { sessionStorage.removeItem(pkceKey); } catch { /* Storage may be disabled. */ }
-=======
-async function redirectToSpotifyLogin() {
-  const verifier = generateRandomString(64);
-
-  const challenge = await generateCodeChallenge(verifier);
-
-  localStorage.setItem("verifier", verifier);
-
-  const params = new URLSearchParams({
-    client_id: CONFIG.CLIENT_ID,
-
-    response_type: "code",
-
-    redirect_uri: CONFIG.REDIRECT_URI,
-
-    scope: CONFIG.SCOPES.join(" "),
-
-    code_challenge_method: "S256",
-
-    code_challenge: challenge,
-  });
-
-  window.location =
-    "https://accounts.spotify.com/authorize?" + params.toString();
-}
-
-/* =========================
-   HANDLE REDIRECT
-========================= */
-
-async function handleRedirect() {
-  const params = new URLSearchParams(window.location.search);
-
-  const code = params.get("code");
-
-  if (!code) return;
-
-  const verifier = localStorage.getItem("verifier");
-
-  const body = new URLSearchParams({
-    client_id: CONFIG.CLIENT_ID,
-
-    grant_type: "authorization_code",
-
-    code: code,
-
-    redirect_uri: CONFIG.REDIRECT_URI,
-
-    code_verifier: verifier,
-  });
-
-  const response = await fetch("https://accounts.spotify.com/api/token", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: body,
-  });
-
-  if (!response.ok) {
-    throw new Error("Errore autenticazione Spotify");
-  }
-
-  const data = await response.json();
-
-  localStorage.setItem("access_token", data.access_token);
-
-  /* pulisce URL */
-
-  window.history.replaceState({}, document.title, window.location.pathname);
-}
-
-/* =========================
-   HELPERS
-========================= */
-
-function generateRandomString(length) {
-  let text = "";
-
-  const possible =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-
-  for (let i = 0; i < length; i++) {
-    text += possible.charAt(Math.floor(Math.random() * possible.length));
->>>>>>> theirs
   }
   async function tokenRequest(body) {
+    const epoch = sessionEpoch;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), config.requestTimeoutMs);
     try {
@@ -107,6 +23,7 @@ function generateRandomString(length) {
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({ client_id: config.clientId, ...body }),
       });
+      if (epoch !== sessionEpoch) throw new LoginRequired("Sessione annullata. Accedi nuovamente.");
       if (!response.ok) {
         if (response.status === 400 || response.status === 401) {
           clear(); throw new LoginRequired("Sessione Spotify scaduta. Accedi nuovamente.");
@@ -114,6 +31,7 @@ function generateRandomString(length) {
         throw new Error("Autenticazione Spotify non disponibile (" + response.status + "). Riprova.");
       }
       const data = await response.json();
+      if (epoch !== sessionEpoch) throw new LoginRequired("Sessione annullata. Accedi nuovamente.");
       if (!data.access_token || !Number.isFinite(data.expires_in) || data.expires_in <= 0)
         throw new Error("Risposta token Spotify non valida.");
       tokens = { accessToken: data.access_token, refreshToken: data.refresh_token || tokens?.refreshToken,
@@ -159,7 +77,7 @@ function generateRandomString(length) {
     window.history.replaceState({}, document.title, url.pathname + url.search + url.hash);
     try { sessionStorage.removeItem(pkceKey); } catch { /* Best effort cleanup. */ }
     if (!pkce?.verifier || !state || state !== pkce.state || !Number.isFinite(pkce.createdAt) ||
-        Date.now() - pkce.createdAt > 600000)
+        Date.now() - pkce.createdAt > 600000 || pkce.createdAt > Date.now())
       throw new LoginRequired("Login non valido o scaduto. Avvia nuovamente l'accesso.");
     if (error) throw new LoginRequired("Accesso Spotify annullato o rifiutato.");
     await tokenRequest({ grant_type: "authorization_code", code,

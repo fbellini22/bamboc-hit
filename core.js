@@ -60,13 +60,18 @@
     const issues = validateSongs(songs);
     const invalidRows = new Set(issues.filter(x => x.severity === "error").map(x => x.row));
     const byId = new Map(), conflicts = new Set();
+    const editorial = new Map();
     (Array.isArray(songs) ? songs : []).forEach((song, i) => {
+      if (song && idPattern.test(song.id)) {
+        const previous = editorial.get(song.id);
+        if (previous && ["title", "artist", "year"].some(k => previous[k] !== song[k])) {
+          conflicts.add(song.id);
+          issues.push({ severity: "error", code: "conflicting-id", row: i + 1, id: song.id });
+        } else if (!previous) editorial.set(song.id, song);
+      }
       if (invalidRows.has(i + 1)) return;
       const previous = byId.get(song.id);
-      if (previous && ["title", "artist", "year"].some(k => previous[k] !== song[k])) {
-        conflicts.add(song.id);
-        issues.push({ severity: "error", code: "conflicting-id", row: i + 1, id: song.id });
-      } else if (!previous) byId.set(song.id, Object.freeze({ ...song }));
+      if (!previous) byId.set(song.id, Object.freeze({ ...song }));
     });
     for (const id of conflicts) byId.delete(id);
     return { issues, size: byId.size, lookup: id => byId.get(id) || null, isConflict: id => conflicts.has(id) };
@@ -75,9 +80,11 @@
     const remainingMs = Math.max(0, Math.min(durationMs, durationMs - (now - startedAt)));
     return { remainingMs, seconds: Math.ceil(remainingMs / 1000), progress: remainingMs / durationMs };
   }
-  function randomPosition(durationMs, roundMs = 45000, marginMs = 2000, random = Math.random) {
-    if (!Number.isFinite(durationMs) || durationMs <= 0) return 0;
-    return Math.floor(random() * Math.max(0, durationMs - roundMs - marginMs));
+  function randomPosition(durationMs, roundMs = 45000, marginMs = 2000, random = Math.random, minimumMs = 1000) {
+    const maximum = Math.floor(durationMs - roundMs - marginMs);
+    if (!Number.isFinite(durationMs) || maximum < minimumMs)
+      throw new Error("Traccia troppo breve o durata non valida per un segmento casuale di 45 secondi senza intro.");
+    return minimumMs + Math.floor(Math.max(0, Math.min(1, random())) * (maximum - minimumMs));
   }
   const transitions = {
     idle: ["opening"], opening: ["scanning", "idle", "stopping"], scanning: ["preparing", "stopping"],

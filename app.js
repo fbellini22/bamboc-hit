@@ -1,4 +1,3 @@
-<<<<<<< ours
 "use strict";
 (() => {
   const { config, core, auth, playback, scanner } = window.Bamboc;
@@ -61,7 +60,8 @@
       if (id !== roundId || leaving) return;
       move("scanning");
       // Transfer and track preparation now belong to the post-QR countdown.
-      await scanner.start(onScan, report);
+      await scanner.start(text => id === roundId ? onScan(text) : true,
+        error => { if (id === roundId && !leaving) report(error); });
       if (id !== roundId || leaving) return;
       trace("scanner ready");
       if (round.phase === "scanning") message("Inquadra il QR di una canzone.");
@@ -102,7 +102,15 @@
     }, { signal });
     try {
       // The player starts preparing NOW; the promise is a gate, not a delayed play.
-      startedAt = await playback.play(song, trace, { signal, readyToStart: countdown });
+      const readyToStart = Promise.all([countdown, core.withTimeout(cameraStopped,
+        config.requestTimeoutMs, "Arresto fotocamera non confermato.")]);
+      startedAt = await playback.play(song, trace, { signal, readyToStart,
+        onStarting() {
+          if (id !== roundId || signal.aborted || leaving) return;
+          el("preplay-count").textContent = "VIA!";
+          el("preplay-count").classList.toggle("waiting", true);
+        },
+      });
       if (id !== roundId || signal.aborted || leaving) return true;
       goTimer = setTimeout(() => { goTimer = null; el("go-label").hidden = true; }, config.goLabelMs);
       move("playing");
@@ -114,90 +122,9 @@
       if (id !== roundId || leaving) return true;
       report(error);
       await finish(false);
-=======
-function debug(msg) {
-  const el = document.getElementById("debug");
-  if (el) el.innerText = msg;
-}
-
-let gameTimer = null;
-let gameActive = false;
-let currentTrack = null;
-
-window.onload = async () => {
-  await handleRedirect();
-
-  const token = localStorage.getItem("access_token");
-
-  if (token) {
-    showGame();
-  } else {
-    showLogin();
-  }
-};
-
-function showLogin() {
-  document.getElementById("login-screen").style.display = "flex";
-  document.getElementById("game-screen").style.display = "none";
-}
-
-function showGame() {
-  document.getElementById("login-screen").style.display = "none";
-  document.getElementById("game-screen").style.display = "flex";
-}
-
-async function initPlayerAndScan() {
-  if (window.player) {
-    try {
-      await window.player.activateElement();
-    } catch (e) {
-      console.warn(e);
-    }
-  }
-
-  startScanner();
-}
-
-function findSongData(trackId) {
-  if (!trackId || !window.SONGS) return null;
-  return SONGS.find((s) => s.id && s.id === trackId);
-}
-
-async function handleSpotifyTrack(url) {
-  if (gameActive) return;
-
-  gameActive = true;
-  document.getElementById("reveal-btn").style.display = "none";
-
-  const trackId = extractTrackId(url);
-  if (!trackId) {
-    alert("QR non valido");
-    gameActive = false;
-    return;
-  }
-
-  const token = localStorage.getItem("access_token");
-  if (!token) {
-    alert("Login richiesto");
-    gameActive = false;
-    return;
-  }
-
-  try {
-    const res = await fetch(`https://api.spotify.com/v1/tracks/${trackId}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-
-    if (!res.ok) {
-      alert("Sessione scaduta o traccia non disponibile");
-      localStorage.clear();
-      location.reload();
-      return;
->>>>>>> theirs
     }
     return true;
   }
-<<<<<<< ours
   function clearTimers() {
     cancelAnimationFrame(frame); frame = null;
     clearTimeout(deadlineTimer); deadlineTimer = null;
@@ -212,19 +139,6 @@ async function handleSpotifyTrack(url) {
     if (clock.remainingMs === 0) { void finish(true); return; }
     cancelAnimationFrame(frame);
     frame = requestAnimationFrame(tick);
-=======
-}
-
-async function playRandomSnippet(track) {
-  const token = localStorage.getItem("access_token");
-  if (!token) {
-    gameActive = false;
-    return;
-  }
-
-  if (!window.device_id && window.player_ready_promise) {
-    await window.player_ready_promise;
->>>>>>> theirs
   }
   function showCard() {
     const card = document.createElement("div"); card.className = "card";
@@ -238,7 +152,6 @@ async function playRandomSnippet(track) {
     el("result").replaceChildren(card);
     requestAnimationFrame(() => { if (card.isConnected) card.classList.add("flip"); });
   }
-<<<<<<< ours
   async function finish(reveal) {
     if (!["opening", "scanning", "preparing", "playing", "stop-error"].includes(round.phase)) return;
     const previous = round.phase;
@@ -253,8 +166,8 @@ async function playRandomSnippet(track) {
     if (previous === "preparing") controller?.abort(new Error("Round annullato."));
     try {
       await playback.stop();
-      await cameraStopped.catch(() => {}); // Retry the actual camera shutdown below.
-      await scanner.stop();
+      // A pending permission prompt/start must not leave the UI stuck forever.
+      await core.withTimeout(scanner.stop(), config.requestTimeoutMs, "Arresto fotocamera non confermato.");
       if (id !== roundId || leaving) return;
       if (!revealAfterStop && authenticated) {
         try { await playback.prepare(); } catch (error) { report(error); }
@@ -287,7 +200,13 @@ async function playRandomSnippet(track) {
     else if (round.phase === "stop-error") void finish(revealAfterStop);
     else void begin();
   });
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) tick(); });
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) tick();
+    else if (["opening", "scanning", "preparing"].includes(round.phase)) {
+      message("Scansione o preparazione annullata mentre la pagina non è visibile.");
+      void finish(false);
+    }
+  });
   playback.onError(error => {
     if (round.phase === "preparing" || round.phase === "playing") {
       report(error); void finish(round.phase === "playing");
@@ -325,161 +244,3 @@ async function playRandomSnippet(track) {
   }
   void boot();
 })();
-=======
-
-  const duration = track.duration_ms;
-  const start = Math.floor(Math.random() * Math.max(duration - 30000, 0));
-
-  try {
-    const transferRes = await fetch("https://api.spotify.com/v1/me/player", {
-      method: "PUT",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ device_ids: [window.device_id], play: false }),
-    });
-
-    if (!transferRes.ok) {
-      alert("Errore attivazione player");
-      gameActive = false;
-      return;
-    }
-
-    const playRes = await fetch(
-      `https://api.spotify.com/v1/me/player/play?device_id=${window.device_id}`,
-      {
-        method: "PUT",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ uris: [track.uri], position_ms: start }),
-      },
-    );
-
-    if (!playRes.ok) {
-      alert("Errore avvio musica");
-      gameActive = false;
-      return;
-    }
-
-    const started = await window.waitForPlaybackStart(5000);
-    if (!started) {
-      console.warn("Timeout playback start, avvio timer in fallback");
-    }
-
-    startCountdown();
-  } catch (err) {
-    console.error(err);
-    gameActive = false;
-  }
-}
-
-function startCountdown() {
-  let time = 30;
-
-  const countdown = document.getElementById("countdown");
-  const revealBtn = document.getElementById("reveal-btn");
-  const result = document.getElementById("result");
-
-  result.style.display = "none";
-  result.innerHTML = "";
-
-  revealBtn.style.display = "block";
-  countdown.innerText = time;
-
-  gameTimer = setInterval(async () => {
-    time--;
-    countdown.innerText = time;
-
-    if (time <= 0) {
-      clearInterval(gameTimer);
-      countdown.innerText = "";
-      await stopSpotifyPlayback();
-      revealTrack(currentTrack);
-      gameActive = false;
-    }
-  }, 1000);
-}
-
-function revealEarly() {
-  if (!gameActive || !currentTrack) return;
-
-  clearInterval(gameTimer);
-  stopSpotifyPlayback();
-  document.getElementById("countdown").innerText = "";
-  revealTrack(currentTrack);
-  gameActive = false;
-}
-
-async function stopSpotifyPlayback() {
-  const token = localStorage.getItem("access_token");
-  if (!token) return;
-
-  try {
-    const res = await fetch("https://api.spotify.com/v1/me/player/pause", {
-      method: "PUT",
-      headers: { Authorization: `Bearer ${token}` },
-    });
-
-    if (!res.ok) {
-      console.warn("Pause non riuscito:", res.status);
-    }
-  } catch (err) {
-    console.error(err);
-  }
-}
-
-function revealTrack(track) {
-  if (!track) return;
-
-  const result = document.getElementById("result");
-  const revealBtn = document.getElementById("reveal-btn");
-
-  result.style.display = "block";
-  revealBtn.style.display = "none";
-
-  const song = track.local;
-
-  result.innerHTML = `
-    <div class="card">
-      <div class="card-front">🎵</div>
-      <div class="card-back">
-        ${
-          song
-            ? `
-              <h2>${song.title}</h2>
-              <p>${song.artist}</p>
-              <p>${song.year}</p>
-            `
-            : `
-              <h2>Canzone non trovata</h2>
-            `
-        }
-      </div>
-    </div>
-  `;
-
-  setTimeout(() => {
-    const card = document.querySelector(".card");
-    if (card) card.classList.add("flip");
-  }, 100);
-
-  document.getElementById("reset-btn").style.display = "block";
-}
-
-function resetGame() {
-  clearInterval(gameTimer);
-  stopSpotifyPlayback();
-
-  document.getElementById("result").style.display = "none";
-  document.getElementById("result").innerHTML = "";
-  document.getElementById("countdown").innerText = "";
-  document.getElementById("reset-btn").style.display = "none";
-  document.getElementById("reveal-btn").style.display = "none";
-
-  gameActive = false;
-  startScanner();
-}
->>>>>>> theirs

@@ -1,181 +1,195 @@
-# Audit tecnico Bamboc-Hit
+# Bamboc Hit — audit locale del 26 settembre 2026
 
-Audit e implementazione: 26 settembre 2026. Repository locale `fbellini22/bamboc-hit`.
-Tutti gli otto file originali esaminati; nessun framework, backend, pacchetto npm o servizio aggiunto.
-Non è stato effettuato push/deploy. `song.js` è rimasto byte per byte invariato.
+Il report deriva da fetch, lettura del codice e test di questa sessione. I vecchi report non sono prove di funzionamento. Nessun push, commit o reset; dataset preservato. Versione pronta per test manuali sui browser con volume SDK controllabile, non certificata su Spotify/hardware reale.
 
-## PROBLEMI TROVATI
+## 1. Stato Git
 
-| File / area originale | Problema e conseguenza | Gravità |
+HEAD, main e origin/main dopo fetch: `ebf887833ee72563b201ed63b90ed6bb42a60568`. Branch: main. Remote: https://github.com/fbellini22/bamboc-hit.git. Divergenza main...origin/main: 0/0; nessun altro branch locale. Eseguiti prima delle modifiche: git status, branch -avv, log --oneline --decorate --graph --all -30, remote -v, fetch origin --prune e rev-parse dei tre riferimenti. Il primo fetch era bloccato dal sandbox su FETCH_HEAD; quello autorizzato è riuscito.
+
+Working tree iniziale: 12 file modificati e due non tracciati. I conflitti erano testo annidato nei file, non un merge Git attivo. Copie integrali dei 12 file in conflitto conservate nella cartella temporanea `bamboc-audit-jlwfm6lu` prima della ricostruzione.
+
+Working tree finale: modifiche locali non committate e i due file inizialmente non tracciati. Alcuni file ripuliti (config, CSS, workflow) coincidono semanticamente con HEAD e possono risultare modificati soltanto per CRLF/LF. song.js, baseline, FULL_DIFF.txt e cronologia non modificati. origin/main resta con i conflitti pubblicati perché non è stato effettuato push.
+
+## 2. Problemi trovati
+
+| Gravità | File / area | Causa e conseguenza | Correzione |
+| --- | --- | --- | --- |
+| Critical | app/player/scanner/auth/HTML, core/config/CSS/package/workflow/report | Implementazioni incompatibili e marker annidati: sintassi non valida e app/CI non avviabili | Ricomposta la famiglia coerente window.Bamboc confrontando i rami, preservando countdown/cache/PKCE/isolamento/stop serializzato |
+| High | app.js, alternativa legacy | GET metadata, localStorage.clear e timer di 30s potevano essere reintrodotti risolvendo male i conflitti | Eliminata variante obsoleta; dati locali, cleanup selettivo, 45s |
+| High | player.js / prepareTrack | Transfer precedente al mute: finestra non protetta | Volume letto e mute verificato prima del transfer, nuovamente verificato prima del play |
+| High | player.js / startPrepared; app.js / onScan | VIA mostrato dopo ripristino volume | Callback VIA dopo avanzamento corretto ancora muto, prima dell'unmute; timer solo dopo conferma SDK successiva |
+| High | app.js / begin | Callback scanner non legata all'apertura: callback vecchia poteva consumare QR nuovo | Callback con roundId dell'apertura |
+| High | player.js / player_state_changed | Payload vecchio dello stesso device poteva interrompere B | Lettura fresca SDK, sequenza, timeout e controllo istanza |
+| High | player.js / ready | Cambio device durante round non verificato | Ritiro del device e errore se cambia ID |
+| High | core.js / createCatalog | Riga invalida filtrata prima del confronto: conflitto editoriale nascosto | Conflitti rilevati prima del filtro; ID sempre escluso |
+| Medium | app.js / cameraStopped, finish | Stop camera fallito ignorato fino a fine round; cleanup poteva attendere indefinitamente | Stop camera nel gate audio, timeout cleanup e RIPROVA STOP |
+| Medium | app.js / visibilitychange | Camera/preparazione proseguivano in background | Annullamento apertura/scansione/preparazione; recupero tempo in PLAYING |
+| Medium | spotify-auth.js / clear, tokenRequest | Refresh poteva ricreare token dopo clear; chiavi legacy residue | Epoch sessione prima della gestione/salvataggio risposta, cleanup chiavi possedute |
+| Medium | spotify-auth.js / callback | PKCE con timestamp futuro accettato | Rifiuto transazione futura |
+| Medium | scripts/validate-data.mjs | Baseline legata alle righe: 11 false anomalie nuove dopo deduplicazione già pubblicata | Fingerprint di anomalia e contenuti, ignora righe e soli spazi esterni; baseline intatta |
+| Medium | validate-dataset.js, core.test.js | Validatore incompleto e test di sole stringhe | Validatore unico completo; test comportamentali |
+| Medium | scripts/check.mjs | Syntax/marker solo sui JS radice | Controllo ricorsivo JS/MJS, JSON e marker anche nei workflow/report |
+| Low | core/player, documentazione | Formula random testata ma non usata, contatore inutile, vecchi report contraddittori | Formula unica realmente usata; rimosso contatore; documentazione aggiornata |
+
+## 3. Conflitti Git
+
+Marker reali in origin/main: app.js, index.html, player.js, scanner.js, spotify-auth.js. Localmente anche core.js, config.js, style.css, package.json, .github/workflows/ci.yml, AUDIT_REPORT.md e DATASET_AUDIT.md: 12 file.
+
+Confrontate tre alternative: vecchio codice globale con Web API metadata; BambocCore con reset best effort e attese evento; Bamboc con macchina a stati, snapshot SDK, timeout e ritiro device in errore. Ricomposta l'ultima e integrate le correzioni sopra. Non è bastato cancellare i marker: alcune porzioni comuni erano contaminate da implementazioni diverse.
+
+Ricerca finale locale: zero marker reali. Occorrenze letterali nelle regex di controllo e separatori/commenti di FULL_DIFF.txt sono intenzionali. La ricerca separata su origin/main continua a rilevare il problema remoto, lasciato invariato su richiesta.
+
+## 4. Flusso finale e inventario
+
+LOGIN PKCE → token → SDK/device ready → SCAN (activateElement nello stesso gesto) → OPENING → SCANNING → QR/Map locale → PREPARING, stop camera e 3-2-1 paralleli alla preparazione → eventuale PREPARAZIONE… → progressione corretta ancora muta → VIA → ripristino volume → conferma SDK → PLAYING/timer → REVEAL → STOPPING → REVEALED → NEXT SONG → nuova scansione.
+
+QR sconosciuti, invalidi e conflittuali restano in SCANNING. REVEAL abilitato solo in PLAYING. STOPPING blocca NEXT; stop fallito espone RIPROVA STOP. Annullamento torna a IDLE dopo cleanup. Pausa, cambio traccia o errore durante PLAYING causano reveal/stop. Doppio click/QR non genera round concorrenti.
+
+| File | Responsabilità / dipendenze |
+| --- | --- |
+| index.html | DOM/accessibilità; script defer config/core/auth/player/scanner/song/app; QR CDN 2.3.8 |
+| style.css | Identità neon, layout flessibile, safe-area, pulsanti minimi 44px, wrapping, reduced-motion |
+| config.js | URI OAuth/scopes, 45s round, 3s countdown, soglie e timeout |
+| core.js | Parsing QR, validazione, Map/quarantena, random, timestamp/transizioni, timeout/abort/countdown |
+| song.js | Sorgente editoriale esclusiva, nessuna rete |
+| spotify-auth.js | PKCE, token/refresh, storage selettivo, wrapper API |
+| player.js | SDK/device, cache tecnica, mute/load/pause/seek/resume, conferme, stop |
+| scanner.js | Coda start/stop, sessione, lock, permessi/fallback e clear |
+| app.js | UI/stato, ownership round, controller, timer, reveal, lifecycle pagina |
+| package.json e workflow | Script senza dipendenze; Actions Ubuntu/Node22, npm run ci, permessi contents:read, timeout 5 minuti |
+| scripts/check.mjs | Syntax/riferimenti/guardie e marker ricorsivi |
+| scripts/validate-data.mjs, validate-dataset.js | Validazione rigorosa o baseline esplicita |
+| tests/run.mjs, core.test.js | SDK/DOM/camera/fetch simulati, orologio controllato, regressioni |
+| .gitignore | node_modules, coverage e .DS_Store esclusi |
+| README e report | Documentazione, non caricata dall'app |
+| data-warnings-baseline.json | Debito editoriale noto, usato solo dal validatore |
+| FULL_DIFF.txt | Artefatto storico non runtime, lasciato intatto, non prova |
+
+Globali intenzionali: window.Bamboc, window.SONGS, callback caricamento SDK. Stato e cache nelle closure. Listener DOM registrati una volta; eventi SDK ignorano istanze ritirate. Waiter eliminano listener/poll/timeout. Timer app: rAF ring, deadline, VIA; countdown separato abortibile. Controller distinti per round app/player e richieste auth. pagehide invalida round, cancella timer, ferma scanner e disconnette; pageshow da bfcache ricarica.
+
+## 5. Audio / intro
+
+Ordine effettivo:
+
+1. Offset subito se durata nota; connessione SDK senza transfer.
+2. getVolume, salvataggio volume, setVolume(0), readback.
+3. Eventuale PUT transfer con play:false; nuova verifica mute.
+4. PUT play sul device specifico, position_ms noto oppure zero.
+5. Stato della traccia richiesta, durata finita positiva, cache; ricalcolo offset se necessario.
+6. Pause e conferma paused; seek random e conferma posizione entro 250ms; mute verificato.
+7. Attesa gate countdown e camera; conferma posizione parcheggiata e volume zero.
+8. Resume ancora muto; conferma unpaused e successivo avanzamento entro 1500ms dall'offset.
+9. Aggiornamento VIA; ripristino volume/readback; nuova conferma traccia/posizione/unpaused; timestamp del timer.
+
+Il codice non invia transfer/play prima del mute verificato. Il caricamento da zero a durata sconosciuta avviene muto. Il player è parcheggiato durante countdown, non lasciato scorrere. Il punto udibile atteso è vicino all'offset, con piccolo avanzamento tecnico per verificare progressione.
+
+In successo il volume salvato viene ripristinato. In errore/abort si disconnette l'istanza senza riattivare uno stream ambiguo; il nuovo player riceve il volume conservato. Non si afferma che setVolume remoto riesca sempre: il vecchio oggetto può restare a zero e non viene riutilizzato.
+
+Nessuna misura del primo campione fisico. VIA viene aggiornato nel DOM prima dell'unmute, ma paint e DAC/Bluetooth non sono sincronizzati né misurati. Su iOS il volume JavaScript non è controllabile e getVolume restituisce 1: il round si interrompe prima del transfer/play. Fonte: [riferimento ufficiale SDK setVolume](https://developer.spotify.com/documentation/web-playback-sdk/reference#spotifyplayersetvolume). Questa è una limitazione reale, non una certificazione del silenzio hardware.
+
+## 6. Spotify
+
+HTTP usato: navigazione GET accounts.spotify.com/authorize; POST accounts.spotify.com/api/token per scambio code e refresh; PUT api.spotify.com/v1/me/player con device_ids/play:false; PUT api.spotify.com/v1/me/player/play?device_id=... con URI e position_ms. 401: un refresh/retry; 403/404/429 espliciti. Un 404 play permette un recupero transfer e retry muto.
+
+SDK: Player, addListener, connect, disconnect, activateElement, getVolume, setVolume, getCurrentState, pause, seek, resume. Eventi: ready, not_ready, player_state_changed, initialization_error, authentication_error, account_error, playback_error, autoplay_failed. SDK da sdk.scdn.co. Nessun GET /tracks/{id} nel runtime. ID/URI/linked_from usati per identità tecnica; name/artists/album SDK non entrano nel reveal.
+
+## 7. Performance
+
+Prima dello scan: Map costruita una volta, token e SDK ready. Click: attivazione audio prima di await e camera. Dopo QR: parsing/lookup locali O(1), stop camera/countdown/preparazione paralleli. Durante 3-2-1: mute/transfer/load/durata/pause/seek/conferma. A VIA: solo dopo gate e progressione, unmute/conferma. PLAYING: rAF/deadline/eventi, nessuna richiesta metadata.
+
+Poll tecnico 250ms solo durante le attese, timeout richieste 12s, readiness 15s, playback 10s. Nessuna attesa artificiale aggiunta dopo countdown, ma resume e progressione SDK richiedono tempo. Rete/DRM/camera/refresh possono allungare PREPARAZIONE. Device mantenuto attivo tra round; transfer solo quando necessario o recupero 404. Debug registra tempi relativi, non token. Latenza fisica non misurata.
+
+## 8. Dataset
+
+347 record, 346 ID distinti, 345 ID giocabili. Zero record strutturalmente invalidi; zero duplicati editoriali perfetti attuali. Durate: 0 presenti, 347 mancanti. Nessuno spazio esterno/ripetuto segnalato. 29 anomalie: 21 separatori artisti, 3 parti vuote nei crediti, 1 duplicate-id, 1 artista forse troncato, 2 titoli sospetti, 1 conflicting-id.
+
+ID manuale 515XcapFOMtOOiGU31UqNp: Queen/Bohemian Rhapsody (voce 46) e De Gregori/Rimmel (259), entrambi 1975; QR bloccato. Nessun ID inventato. Caselli già presente una sola volta (221). Vecchio report di 348 righe obsoleto. song.js invariato rispetto a Git; dettagli e promemoria editoriali in DATASET_AUDIT.md.
+
+## 9. Cache durate
+
+Map e sessionStorage bamboc.spotify.durations.v1, coppie ID/durata. Accetta array di coppie con ID valido e numero finito positivo; JSON corrotto ignorato. Storage indisponibile non blocca il gioco. Durata locale validata ha precedenza; cache solo dell'ID esatto.
+
+Prima scansione: caricamento muto e durata SDK con identità verificata. Successive: offset già nel primo play. Cache aggiornata dalla durata osservata; offset ricalcolato se troppo vicino alla fine effettiva. Traccia diversa, durata mancante/zero o troppo breve non fanno partire il timer. Sotto 48 secondi rifiuto esplicito per conservare 45s + 2s margine + almeno 1s iniziale. Cache limitata alla sessione browser, non certificazione editoriale permanente.
+
+## 10. Race conditions
+
+NEXT bloccato finché pausa e stato paused/null confermati. Promise di pausa scaduta riutilizzata nel retry, senza seconda pausa tardiva accodata. Reset/PREPARING incrementano roundId e abortiscono prima del cleanup. Player usa oggetto round/controller/istanza/device specifici; errori ritirano il device, così comandi tardivi rimangono sul vecchio oggetto. Eventi vecchia istanza ignorati; payload stessa istanza riletto con sequenza. Scanner protetto da coda/sessione/lock e roundId app. Timer cancellati; callback verificano stato. Refresh concorrenti condividono promise; logout invalida risposte pendenti.
+
+Abort di fetch non dimostra cancellazione server di un comando già ricevuto. disconnect non prova silenzio fisico. Isolamento verificato nei mock; rete instabile e comandi remoti tardivi da testare sul servizio. Durante sospensione OS/browser non si può imporre la pausa precisamente al secondo 45: al ritorno il timestamp recupera il tempo e avvia reveal/stop.
+
+## 11. Test
+
+65 test passati: 63 VM e 2 node:test. I 44 test VM originari passavano dopo ricostruzione ma lasciavano rischi scoperti; aggiunti 19 scenari VM. I vecchi test di stringhe sono stati sostituiti da copertura comportamentale e due regressioni catalogo/baseline. Il test della durata obsoleta ora controlla posizione inviata e seek effettivo, non soltanto presenza di una chiamata.
+
+Copertura: QR valido/sconosciuto/conflittuale, reveal locale/no metadata, durata nota/sconosciuta/cache-ID/corruzione, mute prima transfer/play, volume successo e sostituzione in errore, errori mute/read/restore/play/pause/seek/resume/durata, posizione verificata, countdown veloce/lento, timer/reveal disabilitati in PREPARING, reset e callback/HTTP/seek vecchi, pausa tardiva, 45s/ring/auto-reveal, scanner lock/retry/permessi, refresh concorrente/logout, transfer riutilizzato/404, device change, traccia diversa, camera stop fallito.
+
+Node/npm assenti nel PATH. Download portatile tentato ma non riuscito (rete sandbox, successivo avvio accesso negato). Usato il runtime Node v24.18.1 già incluso in VS Code con ELECTRON_RUN_AS_NODE=1. Nessuna installazione globale/dipendenza. npm run ci non è stato eseguito letteralmente: eseguiti i componenti equivalenti. Actions resta Node22, da verificare remotamente dopo futura pubblicazione autorizzata.
+
+| Comando richiesto / controllo | Esecuzione effettiva / esito |
+| --- | --- |
+| git status/branch/log/remote/fetch/rev-parse | Eseguiti; stato sopra |
+| git rev-list --left-right --count main...origin/main | 0/0 |
+| npm run check | Runtime Node scripts/check.mjs: PASS |
+| npm test | Runtime Node tests/run.mjs e --test tests/core.test.js: 65 PASS |
+| npm run validate:dataset | Runtime Node scripts/validate-dataset.js: PASS con 29 anomalie note visibili |
+| npm run validate:data:ci | Runtime Node scripts/validate-data.mjs --baseline: PASS, 0 nuove |
+| npm run ci | Sequenza check/test/baseline equivalente eseguita; npm wrapper e Node22 non eseguiti qui |
+| npm run validate:data | Equivalente rigoroso: FAIL previsto sul conflitto editoriale, non nascosto |
+| node --check tutti JS/MJS | Ricorsivamente da check via process.execPath: PASS |
+| git diff --check | PASS |
+| Marker locale/remoto, /tracks/, TODO/FIXME/HACK, console, innerHTML | Ricercati; occorrenze storiche/documentali distinte dal runtime |
+| Diff finale completo e file nuovi | Riesaminati prima della consegna |
+
+Avviso ambientale: Electron emette Crashpad Accesso negato per il proprio crash reporter; suite completata. Log generato rimosso dalla repository. Nessun test usa credenziali, camera o audio reali.
+
+## 12. File modificati
+
+| File | Modifica e ragione | Rischio |
 | --- | --- | --- |
-| app.js / handleSpotifyTrack | GET /tracks prima di ogni playback: un round trip e parsing JSON sul percorso critico, anche con metadati locali disponibili | high |
-| app.js / playRandomSnippet | Trasferimento device prima di ogni brano: latenza e possibili interruzioni della sessione già attiva | high |
-| app.js + player.js / waitForPlaybackStart | Attesa registrata dopo PUT play: l'evento poteva arrivare prima del resolver e causare 5 secondi artificiali di attesa | high |
-| player.js / conferma | Qualsiasi traccia non in pausa confermava il round, senza controllare ID, caricamento o posizione | high |
-| app.js / timeout | Countdown avviato anche se il playback non era stato confermato | high |
-| app.js / revealEarly + resetGame | Pause non attese, duplicazione dello stop e NEXT subito disponibile: una vecchia pausa poteva fermare la nuova canzone | critical |
-| app.js / errori Spotify | Qualsiasi errore di /tracks cancellava tutto localStorage e ricaricava la pagina; perdita di chiavi di altre app e trattamento errato di 403/404/429/5xx | high |
-| app.js / lookup | Ricerca lineare, lookup sull'ID restituito da Spotify anziché sull'ID stampato: possibile mismatch per relinking | high |
-| song.js / duplicati | Bohemian Rhapsody e Rimmel condividono un ID; find sceglieva silenziosamente la prima voce | critical |
-| song.js / qualità | Duplicato esatto, spazi finali, crediti troncati, typo e separatori disomogenei non segnalati | medium |
-| spotify-auth.js / token | Nessuna scadenza, refresh token o refresh condiviso: sessione utilizzabile solo finché vive l'access token | high |
-| spotify-auth.js / PKCE | Math.random per verifier, assenza di state e verifica callback; verifier persistente senza scadenza | high |
-| config.js / redirect | Origin senza pathname per installazioni diverse da GitHub Pages: callback non coincidente con pagina/URI registrato | medium |
-| index.html + player.js / SDK | SDK caricato prima di installare callback e completare OAuth: inizializzazione dipendente dall'ordine di rete | high |
-| player.js / readiness | Promise unica senza timeout/rejection, device non invalidato su not_ready, errori solo in console | high |
-| player.js / resolver | Un unico resolver globale sostituibile; listener/eventi non correlati al round | high |
-| scanner.js / errori QR | Lock impostato prima della validazione e mai rilasciato dopo QR invalido/assente o errore | high |
-| scanner.js / stop | Arresto camera atteso prima di avviare la richiesta audio | medium |
-| scanner.js / camera | Fallback anche dopo rifiuto permesso; qrbox 280 px maggiore del reader mobile da 250 px | medium |
-| app.js / timer | time-- ogni secondo: drift e ritardo di reveal in tab sospesa; ring mai aggiornato | high |
-| app.js / rendering | Metadati interpolati in innerHTML; timeout flip non legato alla vita della card | medium |
-| app.js / stato | Booleani e variabili globali indipendenti, SCAN disponibile in fasi incompatibili, UI/errori non centralizzati | high |
-| style.css / mobile | Altezza fissa 100vh, reader rigido, card alta 160 px: overflow su viewport piccole e titoli lunghi | medium |
-| index.html / accessibilità | Inline handlers, niente stato leggibile/disabled coerente, nessun rispetto reduced-motion | medium |
-| index.html / dipendenze | html5-qrcode senza versione: aggiornamento CDN non controllato | medium |
-| repository / manutenzione | Assenza di test, validazione dataset e CI | medium |
+| app.js | Ricomposizione, VIA, ownership scanner, gate/timeout camera, background | Medio: orchestrazione asincrona, mock non sostituiscono browser |
+| player.js | Ricomposizione, mute/transfer, VIA, fresh state, device change, formula unica | Medio/alto sul servizio reale e audio |
+| core.js | Quarantena riga invalida e formula random usata davvero | Basso, limiti testati |
+| spotify-auth.js | Ricomposizione PKCE/refresh, epoch e chiavi legacy | Medio, OAuth reale da provare |
+| scanner.js | Ricomposizione coda/sessione/lock/stop/clear | Medio, hardware/permessi |
+| index.html | Eliminata variante duplicata e handler inline | Basso, viewport reale da verificare |
+| config.js/style.css/workflow | Conflitti locali risolti alle impostazioni coerenti già in HEAD | Basso; nessun redesign/config Pages nuova |
+| package.json | JSON coerente, entrambe suite, alias validate:dataset | Basso; npm wrapper non disponibile qui |
+| scripts/check.mjs | Syntax e marker ricorsivi | Basso, fail-fast |
+| scripts/validate-data.mjs | Fingerprint indipendente dalle righe, import senza side effect | Basso, mutazioni editoriali distinte |
+| scripts/validate-dataset.js | Entry point unico completo; file già non tracciato | Basso |
+| tests/run.mjs, core.test.js | Regressioni comportamentali e fixture | Basso, rimangono simulazioni |
+| README/AUDIT_REPORT/DATASET_AUDIT | Stato attuale, limiti, risultati e checklist | Nessun effetto runtime |
 
-Il vecchio reveal privilegiava già i campi locali quando la lookup riusciva: non è corretto dire che sovrascrivesse sempre titolo e anno. Il problema era la dipendenza preliminare da Spotify, l'ID usato per il lookup e l'assenza di una gestione esplicita dei conflitti.
+## 13. Cleanup
 
-## MODIFICHE EFFETTUATE
+Eliminate solo alternative incompatibili, globali/funzioni legacy, contatore player inutile e formula random duplicata. Nessun framework, dipendenza, redesign o riscrittura dataset. FULL_DIFF.txt e baseline preservati; dubbi editoriali pregressi conservati come promemoria non verificati. Commenti/documentazione intro aggiornati. Suite rieseguita dopo cleanup e secondo passaggio.
 
-- Namespace `Bamboc` per config, catalogo/logica pura, auth, playback e scanner; stato e riferimenti DOM privati nell'app.
-- Flusso verificabile: idle → preparing → scanning → loading → playing → stopping → revealed → preparing. Errori di stop: stop-error → stopping. QR sconosciuti lasciano scanning attivo.
-- Catalogo Map creato una sola volta. Snapshot immutabile dei campi locali, nessun fallback editoriale Spotify. ID conflittuali esclusi; duplicati identici indicizzati una volta.
-- OAuth PKCE con crypto.getRandomValues, SHA-256, state, verifier per tab con durata di 10 minuti, pulizia callback conservando query/hash estranei.
-- Access token, refresh token ed expiresAt conservati in chiave dedicata; refresh con margine di 60 secondi, condiviso tra richieste concorrenti; un solo retry su 401; messaggi distinti per 403/404/429 e timeout.
-- Vecchie chiavi `access_token` e `verifier` eliminate soltanto in cleanup auth. Mai `localStorage.clear()`. Le sessioni legacy senza scadenza/refresh richiedono un nuovo login.
-- SDK caricato dopo auth, callback installata prima dello script, errore rete/timeout/retry gestiti. Connect e ready attesi insieme, listener rimossi alla conclusione.
-- SCAN e NEXT invocano activateElement sincronicamente nel click, poi preparano/trasferiscono il device prima di aprire la camera. Il device resta connesso fra i round.
-- Attesa playback registrata prima del comando; controlli su traccia, paused, loading e posizione; fallback con getCurrentState ogni 250 ms solo durante l'attesa, timeout esplicito e cleanup.
-- Trasferimento ripetuto solo se non attivo o per un recupero limitato dopo 404. Nessun retry automatico di PUT play dopo un timeout ambiguo.
-- Scanner serializza start/stop, blocca rilevazioni duplicate, riapre il lock sui QR rifiutati, usa la posteriore e distingue rifiuto permessi da mancata camera.
-- Arresto camera fuori dal percorso critico audio. Prima della prossima apertura lo scanner ritenta l'arresto se necessario.
-- REVEAL mostra subito la risposta locale, ma NEXT resta disabilitato durante la pausa SDK e la verifica di arresto. Se fallisce, compare RIPROVA STOP. Un comando pause ancora pendente viene riutilizzato al retry: non viene inviata una seconda pausa capace di scavalcarlo.
-- Countdown da timestamp confermato; requestAnimationFrame per ring fluido, timeout alla deadline e ricalcolo al ritorno in primo piano. Nessuna decrementazione cumulativa.
-- Rendering con textContent, card adattabile al contenuto, hidden coerente, pulsanti touch/disabled/focus, status aria-live, timer accessibile, viewport dinamica e reduced-motion.
-- html5-qrcode fissato a 2.3.8. SDK all'URL ufficiale Spotify (senza inventare una versione non pubblicata).
+## 14. Problemi aperti
 
-## PERFORMANCE
+- Queen/Rimmel resta ambiguo/bloccato; altre anomalie editoriali da rivedere manualmente.
+- Safari iPhone con volume SDK non controllabile non completa il percorso silenzioso: errore esplicito, non compatibilità dichiarata.
+- Audio fisico/paint VIA/DRM/relinking/camera/latenza non verificati.
+- Sospensione può ritardare lo stop oltre 45s; timestamp recuperato al ritorno.
+- npm/Node22/workflow remoto non eseguiti qui; componenti verificati su Node24 incorporato.
+- origin/main pubblicato resta rotto fino alla revisione/pubblicazione dell'utente. Nessun push.
 
-Prima: scan → stop camera → GET track → parsing JSON → attesa device → PUT transfer → PUT play → registrazione tardiva waiter → eventuali 5 secondi → countdown.
+## 15. Test manuali necessari
 
-Adesso: click → attivazione audio + preparazione device + eventuale transfer → scanner. Poi scan → parsing → Map locale → PUT play con URI costruito direttamente → evento SDK/poll di conferma → countdown. La chiusura camera procede indipendentemente.
+- [ ] Premium/account ammesso: login nuovo/rifiutato, reload, refresh dopo scadenza, token invalido e recupero; URI OAuth Pages esatto nel dashboard.
+- [ ] Chrome desktop: cache vuota/piena, 3-2-1, PREPARAZIONE su rete lenta, VIA/primo audio, 45s/reveal/NEXT; ripetere con Spotify desktop aperto.
+- [ ] Safari iPhone: DRM/attivazione e messaggio mute non supportato; nessun transfer/play prima dell'errore. Blocco sicuro non equivale a gioco funzionante.
+- [ ] Chrome Android: gesto SCAN, audio/camera posteriore, portrait/landscape, safe-area e testi lunghi; app Spotify aperta sul telefono.
+- [ ] Camera: concedere/negare/revocare; annullare col prompt aperto; doppio start/stop; verificare spia spenta dopo QR/annullamento/background.
+- [ ] QR stampati: noto/sconosciuto/malformato/Queen-Rimmel/Caselli; doppia scansione; dieci round consecutivi; query e URL locale.
+- [ ] Audio fisico: registrare prima scansione, assenza intro prima del seek; Bluetooth/altoparlante; volume esterno cambiato durante PREPARING e recupero.
+- [ ] Background e telefono bloccato/sbloccato: annullamento camera/preparazione; PLAYING recupera tempo e auto-reveal/stop appena possibile.
+- [ ] Rete lenta/interrotta durante load/seek/pause/resume/refresh: errore visibile, niente timer prematuro, volume sul nuovo player, STOP retry senza sovrapposizione.
+- [ ] NEXT rapido/spam REVEAL: B non parte prima dello stop A; pausa tardiva, reset durante 3-2-1 e nuova scansione.
+- [ ] Cambio device desktop/smartphone e not_ready: stop/errore coerenti, riconnessione e nuovo gesto SCAN.
+- [ ] Pages: asset relativi e case sensitivity, CDN, callback produzione, reload su /bamboc-hit/; npm run ci con Node22 prima della pubblicazione.
 
-La preparazione è anticipata al click: non viene eliminato il suo costo iniziale, ma non ricade normalmente fra lettura del QR e primo audio. Non vengono recuperati profilo utente, album o metadati di traccia.
+## 16. Verdetto tecnico
 
-### Punto casuale e compromesso esplicito
+Automatico: sintassi/marker/JSON/riferimenti, 65 test simulati, dataset completo/baseline senza novità, diff whitespace. Code review: flusso/stati, ordine mute/transfer/play, source of truth locale, ownership/cleanup, path Pages e CSS conservato. Non verificato: OAuth/SDK live, paint/mobile, camera/audio fisico, comportamento remoto dopo disconnect, sospensione OS, Actions Node22.
 
-Non ci sono durate attendibili nel dataset originale. Senza durata locale/cache è impossibile scegliere con certezza un offset casuale sicuro prima del primo caricamento senza una richiesta aggiuntiva.
-
-Strategia implementata:
-1. Durata locale opzionale `durationMs` oppure cache sessionStorage: un solo play con position_ms casuale.
-2. Durata sconosciuta: play immediato da zero, lettura durata dal primo stato SDK della traccia, un seek SDK al punto casuale e nuova conferma. Il countdown di 45 secondi parte dalla conferma del segmento scelto.
-3. Durata salvata in cache per lo stesso ID stampato, separata dai metadati editoriali.
-4. Offset massimo: durata - 45000 - 2000 ms. Tracce più brevi partono da zero; se finiscono prima, il round viene svelato per interruzione.
-5. Una durata memorizzata troppo lunga viene corretta se lo stato SDK indica che l'offset scelto è troppo vicino alla fine.
-
-Il primo ascolto di una traccia non in cache può far sentire un breve frammento iniziale prima del salto. È il compromesso adottato per non ritardare il primo audio e mantenere il segmento casuale. Se si vuole sempre e soltanto audio dal punto casuale, servono durate verificate nel database o un pre-caricamento/muting, con costi ulteriori.
-
-### Misure
-
-Aprire `?debug=1`: la console riporta label e millisecondi relativi per preparazione e singolo scan, senza token o metadati della risposta.
-Label: audio activation requested, device ready, transfer requested, scanner ready, scan detected, local lookup, play requested, play retried, random seek requested, playback confirmed.
-
-Nessuna misura di latenza reale o miglioramento percentuale viene dichiarata: non era disponibile una sessione audio/camera autenticata. Lo stato SDK conferma ragionevolmente la riproduzione, non misura il suono fisico dagli altoparlanti.
-
-## SPOTIFY
-
-| Fase | Chiamate applicative |
-| --- | --- |
-| Login/callback | Authorize + POST accounts.spotify.com/api/token con PKCE |
-| Refresh | POST token solo quando necessario; nessun client secret |
-| SCAN/NEXT | activateElement SDK; connect/ready se necessario; PUT /v1/me/player solo per device non attivo |
-| Round normale con durata | PUT /v1/me/player/play?device_id=... con uris e position_ms |
-| Primo round senza durata | Stesso PUT play + un seek SDK, salvo offset zero |
-| Conferma | Evento player_state_changed; getCurrentState SDK durante attesa (non polling Web API del catalogo) |
-| REVEAL/scadenza | pause SDK sul player di questo browser + conferma pausa/null |
-| Recupero 404 | Un transfer e un retry play; nessun loop |
-| QR invalido/assente/conflittuale | Nessuna richiesta per quella traccia |
-
-L'SDK effettua autonomamente traffico interno: “un PUT” descrive i comandi Web API emessi dall'app, non tutto il traffico di rete Spotify.
-
-Riferimenti verificati: [SDK reference](https://developer.spotify.com/documentation/web-playback-sdk/reference), [PKCE](https://developer.spotify.com/documentation/web-api/tutorials/code-pkce-flow), [refresh token](https://developer.spotify.com/documentation/web-api/tutorials/refreshing-tokens), [start playback](https://developer.spotify.com/documentation/web-api/reference/start-a-users-playback), [html5-qrcode 2.3.8](https://github.com/mebjas/html5-qrcode/releases/tag/v2.3.8).
-
-## DATABASE
-
-`song.js` è la source of truth esclusiva per titolo, artista e anno. Il reveal usa i campi della voce locale risolta dall'ID del QR. Stato/durata/identità tecnica dello SDK servono soltanto alla riproduzione. Titoli, nomi artista, anno e ID originali sono invariati.
-
-348 voci, 346 ID distinti, 345 ID utilizzabili: un duplicato esatto non genera due elementi, un ID conflittuale viene bloccato esplicitamente. Non è possibile preservare un risultato corretto per due brani diversi sotto lo stesso ID: il QR viene riconosciuto ma mostra l'avviso di ambiguità finché il curatore non corregge i dati.
-
-## DATASET WARNINGS
-
-Elenco completo, separato per categoria e con numeri delle voci/ID/campi: [DATASET_AUDIT.md](DATASET_AUDIT.md).
-39 segnalazioni automatiche: 38 warning e 1 errore. Nessun ID sintatticamente invalido, campo richiesto vuoto, anno fuori intervallo o difetto di encoding rilevato. La validazione sintattica non certifica che un ID Spotify esista o corrisponda al brano indicato.
-
-Il file contiene anche candidati editoriali manuali e alcuni riscontri RAI sugli anni: sono segnalazioni da approvare umanamente, mai regole che modificano il dataset.
-
-## TEST
-
-Eseguiti 44 test nel runtime JavaScript integrato, 44 superati, 0 falliti:
-- parsing URI e URL, query/hash/localizzazione; URL ostili, album, HTTP, ID malformati;
-- lookup locale/assente, duplicati uguali e conflittuali, validazione campi/anni/durate/formattazione;
-- countdown con callback ritardate e posizione casuale con margine;
-- transizioni valide e blocco NEXT durante stop/errore;
-- refresh concorrente, invalid grant, errori temporanei, 401 con retry singolo, 403/404/429;
-- PKCE/state, callback incompleta/scaduta/rifiutata, preservazione parametri URL, timeout abortito;
-- evento ready/playback anticipato rispetto alla risoluzione del comando;
-- durata sconosciuta/cache, recupero 404, correzione durata obsoleta;
-- traccia sbagliata, timeout ready, connect false, not_ready e riconnessione;
-- authentication/account/initialization/playback/autoplay errors e pausa fallita;
-- identità relinked disponibile nello stato SDK;
-- doppia scansione, QR rifiutato, callback fallita, restart e fallback camera;
-- flusso completo UI simulato, metadati editoriali esatti, pausa pendente, retry stop;
-- nessun countdown prima della conferma, no secondo round da QR ripetuto;
-- scadenza automatica, playback fallito e callback QR dopo annullamento;
-- typo/troncamento segnalati senza riscrittura;
-- pausa in timeout riutilizzata senza duplicare comandi tardivi.
-
-Syntax check dei 7 script browser e controlli HTML/regressione: PASS. `git diff --check`: PASS.
-Validazione con baseline: PASS, zero anomalie nuove.
-Validazione rigorosa: segnala intenzionalmente l'errore editoriale Bohemian Rhapsody/Rimmel. Non viene dichiarato un dataset privo di errori.
-
-Node/npm non sono nel PATH della shell: i file di test/check/validazione sono stati eseguiti con il runtime JavaScript disponibile, non tramite il comando npm nella shell. CI configurata per Node 22; workflow non ancora eseguito su GitHub.
-Non aggiunto un linter/formatter esterno: controlli di sintassi e guardie mirate mantengono zero dipendenze npm.
-
-## FILE MODIFICATI
-
-| File | Scopo |
-| --- | --- |
-| config.js | Costanti, URI con pathname, flag debug |
-| spotify-auth.js | PKCE, callback, token/refresh/errori e client API |
-| player.js | Lifecycle SDK, conferma playback, cache durata, seek/stop |
-| scanner.js | Lock recuperabile, start/stop, camera fallback |
-| app.js | Stato centralizzato, flusso asincrono, timer/ring, reveal/reset |
-| index.html | Script defer e ordine, CDN fissata, eventi non inline e accessibilità |
-| style.css | Layout mobile, card adattabile, hidden/disabled/focus/reduced-motion |
-| core.js (nuovo) | Parser, catalogo, validator, countdown, random offset, transizioni, timeout |
-| package.json (nuovo) | Comandi check/test/validazione/CI senza dipendenze |
-| tests/run.mjs (nuovo) | Suite di regressione e integrazione con SDK/camera/DOM simulati |
-| scripts/check.mjs (nuovo) | Syntax check e guardie anti-regressione |
-| scripts/validate-data.mjs (nuovo) | Validazione rigorosa o con baseline esplicita |
-| data-warnings-baseline.json (nuovo) | Fingerprint delle anomalie esistenti, inclusi entrambi i record duplicati |
-| .github/workflows/ci.yml (nuovo) | Check/test/dati su push e pull request, permessi in lettura |
-| .gitignore (nuovo) | Esclusione dipendenze/cache di test |
-| README.md (nuovo) | Avvio, auth, comandi, comportamento e verifiche manuali |
-| AUDIT_REPORT.md (nuovo) | Questo report |
-| DATASET_AUDIT.md (nuovo) | Inventario anomalie editoriali |
-| song.js (esaminato, non modificato) | Nessun intervento sui dati curati o QR stampati |
-
-## RISCHI / COSE DA TESTARE MANUALMENTE
-
-1. Spotify Premium reale: login, rinnovo dopo scadenza, account ammesso alla app, URI callback esatto registrato. Nessuna credenziale reale è stata utilizzata nei test.
-2. Chrome/Firefox/Edge desktop, Safari iOS e Chrome Android: DRM, activateElement, audio dal click, uscita/rientro in background.
-3. Fotocamera fisica: permessi concessi/negati/revocati, selezione posteriore, QR già stampati, luce e autofocus, restart ripetuto.
-4. Registrare tempi con debug per cache vuota/piena, Wi-Fi/mobile, rete lenta e dispositivo Spotify cambiato esternamente. Ascoltare il primo frammento prima del seek per accettare il compromesso.
-5. Tracce indisponibili per mercato o relinked: il match usa ID/URI e linked_from se presente; senza identità verificabile il round fallisce esplicitamente. Nessuna sostituzione editoriale.
-6. Tab/sistema sospeso: il tempo trascorso viene ricalcolato correttamente al risveglio, ma JavaScript non può imporre una pausa audio esattamente alla deadline quando il browser/OS non esegue codice. Questo limite non viene nascosto.
-7. Nessuna coda applicativa invia vecchie pause dopo NEXT nel flusso ordinario. Un timeout di rete/SDK non prova che il comando remoto sia cancellato: richieste già ricevute da Spotify possono completarsi tardi. Verificare disconnessione/rete instabile sul servizio reale; NEXT è bloccato se lo stop fallisce.
-8. Il browser integrato non era collegato: nessuna verifica visuale/screenshot reale desktop-mobile effettuata. Layout controllato nel codice e interazioni via DOM simulato.
-9. Risolvere manualmente l'ID conflittuale, eventuali attribuzioni errate e anni sospetti prima di usare le carte coinvolte. Un ID base62 valido non certifica il collegamento musicale.
-10. CI deve essere eseguita su GitHub dopo commit/push. La baseline è una registrazione esplicita del debito editoriale, non una correzione; non rigenerarla automaticamente per nascondere nuovi problemi.
+Versione locale pronta per test manuale controllato sui browser compatibili. Non significa che ogni dispositivo funzioni: iOS e conflitto editoriale rimangono limiti espliciti. Revisionare il diff prima di pubblicare.

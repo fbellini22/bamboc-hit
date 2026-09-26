@@ -100,9 +100,9 @@ test("countdown follows elapsed time including delayed callbacks and background 
   assert.equal(core.countdown(1000, 90000).seconds, 0);
 });
 test("random offset reserves 45s plus safety margin and handles short tracks", () => {
-  assert.equal(core.randomPosition(180000, 45000, 2000, () => 0.5), 66500);
-  assert.equal(core.randomPosition(30000), 0);
-  assert.equal(core.randomPosition(undefined), 0);
+  assert.equal(core.randomPosition(180000, 45000, 2000, () => 0.5), 67000);
+  assert.throws(() => core.randomPosition(30000), /troppo breve/);
+  assert.throws(() => core.randomPosition(undefined), /durata non valida/);
   assert.ok(core.randomPosition(180000,45000,2000,()=>0.999999) < 133000);
 });
 test("round transitions prevent new scans during play and pending/failed stop", () => {
@@ -199,7 +199,7 @@ test("callback exchanges code and cleans only OAuth parameters", async () => {
 });
 
 function playerFixture(options = {}) {
-  const c = environment();
+  const c = environment({sessionStorage: storage(options.cache ? {"bamboc.spotify.durations.v1": options.cache} : {})});
   let instance;
   const calls = [], audio = [], history = [], requests = [], instances = [];
   function record(type, target, extra = {}) {
@@ -317,7 +317,7 @@ test("missing ready and connect false reject within deadline", async () => {
 test("not_ready invalidates device and next prepare reconnects", async () => {
   const f=playerFixture();
   await f.api.prepare();
-  f.instance.emit("not_ready",{device_id:"device"});
+  f.instance.emit("not_ready",{device_id:f.instance.device});
   await f.api.prepare();
   await f.api.play({...song,durationMs:180000}); await f.api.stop();
   assert.ok(f.calls.includes("/me/player"));
@@ -441,6 +441,8 @@ function appFixture({clock, preplayMs=0, songs=[song]} = {}) {
   return {c,element,calls,click:id=>listeners[id+":click"](),scan:text=>decoded(text),
     setPause:value=>{pause=value;},setPlay:value=>{nextPlay=value;},
     error:()=>errors(new Error("offline")),state:value=>states(value),
+    get decoded(){return decoded;},
+    visibility:hidden=>{c.document.hidden=hidden;docListeners.visibilitychange();},
     pagehide:()=>windowListeners.pagehide()};
 }
 
@@ -516,7 +518,9 @@ test("stale duration that could seek too near the end is corrected using SDK dur
   core.randomPosition = (duration, round, margin) => original(duration, round, margin, () => 0.9);
   try {
     await f.api.play({...song,durationMs:1000000000});await f.api.stop();
-    assert.ok(f.calls.includes("seek"));
+    const seek=f.history.find(entry=>entry.type==="seek");
+    assert.ok(f.requests[0].body.position_ms>180000);
+    assert.ok(seek.requestedPosition>=1000 && seek.requestedPosition<=133000);
   } finally { core.randomPosition = original; }
 });
 test("OAuth cancellation returns explicit login error without token exchange", async () => {
@@ -567,6 +571,160 @@ test("timed-out pause is reused on STOP retry, so no late duplicate pause can re
   pending.resolve();
   await retry;
   assert.equal(calls,1);
+});
+
+test("mute readback precedes transfer and play; VIA callback precedes unmute", async () => {
+  const f=playerFixture();let via=false;
+  await f.api.play(song,()=>{}, {onStarting(){
+    via=true;assert.equal(f.instance.volume,0);assert.equal(f.audio.length,0);
+    assert.ok(f.instance.state.position>=1000);assert.equal(f.instance.state.paused,false);
+  }});
+  assert.equal(via,true);
+  assert.ok(f.calls.indexOf("volume:0")<f.calls.indexOf("/me/player"));
+  assert.equal(f.requests[0].volume,0);
+  assert.ok(f.audio.every(entry=>entry.position>=1000));
+  assert.equal(f.instance.volume,0.8);await f.api.stop();
+});
+test("known duration sends random position in first play request", async () => {
+  const f=playerFixture();await f.api.play({...song,durationMs:180000});
+  assert.ok(f.requests[0].body.position_ms>=1000);
+  assert.ok(f.requests[0].body.position_ms<=133000);await f.api.stop();
+});
+test("duration cache is keyed by track and saved from matching SDK state", async () => {
+  const f=playerFixture();await f.api.play(song);await f.api.stop();
+  await f.api.play({...song,id:otherId});await f.api.stop();
+  assert.deepEqual(f.requests.map(x=>x.body.position_ms),[0,0]);
+  const cache=JSON.parse(f.c.sessionStorage.getItem("bamboc.spotify.durations.v1"));
+  assert.deepEqual(cache,[[id,180000],[otherId,180000]]);
+});
+test("corrupt persisted durations are ignored rather than used as offsets", async () => {
+  for(const cache of ['null','{broken',JSON.stringify([[id,-1],[otherId,180000]])]) {
+    const f=playerFixture({cache});await f.api.play(song);
+    assert.equal(f.requests[0].body.position_ms,0);await f.api.stop();
+  }
+});
+test("uncontrollable/mute-failing volume blocks transfer and track load", async () => {
+  for(const options of [{ios:true},{muteFail:true},{volumeReadFail:true},{initialVolume:0}]) {
+    const f=playerFixture(options);await assert.rejects(f.api.play(song));
+    assert.equal(f.requests.length,0);assert.equal(f.calls.includes("/me/player"),false);
+  }
+});
+test("preparation failures retire muted device and preserve volume for replacement", async () => {
+  for(const options of [{seekFail:true},{pauseFail:true},{resumeFail:true},{restoreFail:true},
+    {seekIgnore:true},{stalled:true},{duration:0},{duration:30000}]) {
+    const f=playerFixture(options);await assert.rejects(f.api.play(song));
+    const retired=f.instance;assert.equal(retired.disconnected,true);
+    assert.equal(f.audio.length,0);
+    await f.api.prepare();assert.notEqual(f.instance,retired);assert.equal(f.instance.volume,0.8);
+    f.api.disconnect();
+  }
+});
+test("countdown gate parks track muted, and cancellation cannot resume it", async () => {
+  const gate=defer(), controller=new AbortController(), f=playerFixture();
+  const pending=f.api.play(song,()=>{}, {signal:controller.signal,readyToStart:gate.promise});
+  await delay(15);assert.equal(f.audio.length,0);assert.equal(f.calls.includes("resume"),false);
+  assert.equal(f.instance.state.paused,true);
+  controller.abort(new Error("cancel"));await assert.rejects(pending,/cancel/);
+  gate.resolve();await delay(0);assert.equal(f.calls.includes("resume"),false);
+  assert.equal(f.instance.disconnected,true);
+});
+test("late seek from cancelled A targets retired instance, never B", async () => {
+  const gate=defer(), controller=new AbortController(), f=playerFixture({seekGate:gate.promise});
+  const pending=f.api.play(song,()=>{}, {signal:controller.signal});await delay(15);
+  const old=f.instance;controller.abort(new Error("cancel"));await assert.rejects(pending);
+  f.options.seekGate=null;
+  await f.api.play({...song,id:otherId});const current=f.instance;
+  gate.resolve();await delay(0);
+  assert.notEqual(current,old);assert.equal(old.disconnected,true);
+  assert.equal(current.state.track_window.current_track.id,otherId);assert.equal(current.state.paused,false);
+  await f.api.stop();
+});
+test("late HTTP A and SDK events are isolated from round B", async () => {
+  const gate=defer(), controller=new AbortController(), f=playerFixture({apiGate:gate.promise});
+  const pending=f.api.play(song,()=>{}, {signal:controller.signal});await delay(15);
+  const old=f.instance;controller.abort(new Error("cancel"));await assert.rejects(pending);
+  f.options.apiGate=null;await f.api.play({...song,id:otherId});
+  const current=f.instance;gate.resolve();await delay(0);old.emit("not_ready",{});
+  assert.equal(current.disconnected,false);assert.equal(current.state.paused,false);
+  assert.equal(current.state.track_window.current_track.id,otherId);await f.api.stop();
+});
+test("conflicting QR never leaves scanner or requests playback", async () => {
+  const f=appFixture({songs:[song,{...song,title:"Conflict"}]});await delay(0);
+  f.click("scan-btn");await delay(0);assert.equal(await f.scan("spotify:track:"+id),false);
+  assert.equal(f.calls.includes("play"),false);assert.equal(f.element("scanner-container").hidden,false);
+  f.click("cancel-btn");await delay(0);
+});
+test("fast preparation waits 3-2-1; reveal and timer stay disabled", async () => {
+  const clock=fakeClock(), f=appFixture({clock,preplayMs:3000});await flush();
+  f.click("scan-btn");await flush();const pending=f.scan("spotify:track:"+id);await flush();
+  for(const expected of ["3","2","1"]) {
+    assert.equal(f.element("preplay-count").textContent,expected);
+    assert.equal(f.element("reveal-btn").disabled,true);assert.equal(f.element("timer").hidden,true);
+    f.click("reveal-btn");await clock.advance(1000);
+  }
+  await pending;assert.equal(f.element("countdown").textContent,"45");
+  assert.equal(f.element("go-label").hidden,false);f.click("reveal-btn");await flush();
+  assert.equal(clock.pending,0);
+});
+test("slow preparation shows PREPARAZIONE until playback confirmed", async () => {
+  const clock=fakeClock(), gate=defer(), f=appFixture({clock,preplayMs:3000});await flush();
+  f.setPlay(gate.promise);f.click("scan-btn");await flush();const pending=f.scan("spotify:track:"+id);
+  await clock.advance(3000);assert.equal(f.element("preplay-count").textContent,"PREPARAZIONE…");
+  assert.equal(f.element("go-label").hidden,true);assert.equal(f.element("timer").hidden,true);
+  gate.resolve(null);await pending;assert.equal(f.element("countdown").textContent,"45");
+  f.click("reveal-btn");await flush();assert.equal(clock.pending,0);
+});
+test("reset during PREPARING cancels clock and ignores late completion", async () => {
+  const clock=fakeClock(), gate=defer(), f=appFixture({clock,preplayMs:3000});await flush();
+  f.setPlay(gate.promise);f.click("scan-btn");await flush();const pending=f.scan("spotify:track:"+id);
+  f.click("cancel-btn");await flush();gate.resolve(null);await pending;await clock.advance(5000);
+  assert.equal(f.element("timer").hidden,true);assert.equal(f.element("scan-btn").hidden,false);
+  assert.equal(clock.pending,0);
+});
+test("old scanner callback cannot consume QR after NEXT starts a new session", async () => {
+  const f=appFixture();await delay(0);f.click("scan-btn");await delay(0);const stale=f.decoded;
+  await f.scan("spotify:track:"+id);f.click("reveal-btn");await delay(0);
+  f.click("reset-btn");await delay(0);await stale("spotify:track:"+id);
+  assert.equal(f.calls.filter(x=>x==="play").length,1);f.click("cancel-btn");await delay(0);
+});
+test("background cancels camera; 45-second deadline auto-reveals and cleans timers", async () => {
+  const clock=fakeClock(),f=appFixture({clock});await flush();f.click("scan-btn");await flush();
+  f.visibility(true);await flush();assert.equal(f.element("scan-btn").hidden,false);
+  f.visibility(false);f.click("scan-btn");await flush();await f.scan("spotify:track:"+id);
+  await clock.advance(44999);assert.equal(f.element("result").hidden,true);
+  await clock.advance(1);assert.equal(f.element("result").hidden,false);assert.equal(clock.pending,0);
+});
+test("logout during refresh cannot resurrect tokens and removes legacy owned keys only", async () => {
+  const gate=defer(),c=authFixture({...expired,refresh_token:"legacy",token_expires_at:"0",unrelated:"keep"},()=>gate.promise);
+  const pending=c.Bamboc.auth.getToken();c.Bamboc.auth.clear();
+  gate.resolve(response(200,{access_token:"late",expires_in:3600}));await assert.rejects(pending,/annullata/);
+  assert.equal(c.localStorage.getItem("bamboc.spotify.tokens"),null);
+  assert.equal(c.localStorage.getItem("refresh_token"),null);assert.equal(c.localStorage.getItem("unrelated"),"keep");
+});
+
+test("stale paused event payload on retained device cannot stop new playback", async () => {
+  const f=playerFixture();await f.api.play(song);await f.api.stop();
+  const oldState={...f.instance.state};await f.api.play({...song,id:otherId});
+  const states=[];const unsubscribe=f.api.onState(state=>states.push(state));
+  f.instance.emit("player_state_changed",oldState);await flush();
+  assert.ok(states.length>0);assert.ok(states.every(state=>!state.paused && state.track_window.current_track.id===otherId));
+  unsubscribe();await f.api.stop();
+});
+test("failed track load and mid-preparation device change retire the device", async () => {
+  const f=playerFixture();const api=f.c.Bamboc.auth.api;
+  f.c.Bamboc.auth.api=(path,options)=>path.startsWith("/me/player/play") ? Promise.reject(new Error("play failed")) : api(path,options);
+  await assert.rejects(f.api.play(song),/play failed/);assert.equal(f.instance.disconnected,true);
+  const gate=defer(),g=playerFixture();const pending=g.api.play(song,()=>{},{readyToStart:gate.promise});
+  await delay(15);g.instance.emit("ready",{device_id:"replacement"});
+  await assert.rejects(pending,/cambiato/);assert.equal(g.instance.disconnected,true);gate.resolve();
+});
+
+test("camera shutdown failure prevents PLAYING and exposes retry STOP", async () => {
+  const f=appFixture();await delay(0);f.click("scan-btn");await delay(0);
+  f.c.Bamboc.scanner.stop=async()=>{throw new Error("camera stop failed");};
+  await f.scan("spotify:track:"+id);
+  assert.equal(f.element("timer").hidden,true);assert.equal(f.element("reveal-btn").disabled,true);
+  assert.equal(f.element("reset-btn").textContent,"RIPROVA STOP");
 });
 
 let failures=0;

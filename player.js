@@ -1,9 +1,8 @@
-<<<<<<< ours
 "use strict";
 (() => {
   const { config, core, auth } = window.Bamboc;
   let player = null, deviceId = null, connected = null, sdkLoading = null;
-  let active = false, generation = 0, connectionEpoch = 0, cancelConnection = null;
+  let active = false, connectionEpoch = 0, cancelConnection = null, stateSequence = 0;
   let currentRound = null, pendingPause = null, desiredVolume = config.defaultVolume;
   const stateListeners = new Set(), errorListeners = new Set(), readyListeners = new Set();
   const durations = new Map();
@@ -16,98 +15,11 @@
       if (/^[A-Za-z0-9]{22}$/.test(id) && Number.isFinite(duration) && duration > 0) durations.set(id, duration);
     }
   } catch { /* Invalid cache is disposable. */ }
-=======
-let player = null;
-
-window.device_id = null;
-window.player_ready_promise = null;
-
-let resolvePlayerReady;
-let playbackStartResolver = null;
-
-window.player_ready_promise = new Promise((resolve) => {
-  resolvePlayerReady = resolve;
-});
-
-window.waitForPlaybackStart = function waitForPlaybackStart(timeoutMs = 5000) {
-  return new Promise((resolve) => {
-    let settled = false;
-<<<<<<< ours
-<<<<<<< ours
-
-    const timeout = setTimeout(() => {
-      if (!settled) {
-        settled = true;
-        playbackStartResolver = null;
-        resolve(false);
-      }
-    }, timeoutMs);
-
-    playbackStartResolver = () => {
-      if (!settled) {
-        settled = true;
-        clearTimeout(timeout);
-        playbackStartResolver = null;
-        resolve(true);
-      }
-    };
-  });
-};
-
-=======
-
-    const timeout = setTimeout(() => {
-      if (!settled) {
-        settled = true;
-        playbackStartResolver = null;
-        resolve(false);
-      }
-    }, timeoutMs);
-
-    playbackStartResolver = () => {
-      if (!settled) {
-        settled = true;
-        clearTimeout(timeout);
-        playbackStartResolver = null;
-        resolve(true);
-      }
-    };
-  });
-};
-
->>>>>>> theirs
-=======
-
-    const timeout = setTimeout(() => {
-      if (!settled) {
-        settled = true;
-        playbackStartResolver = null;
-        resolve(false);
-      }
-    }, timeoutMs);
-
-    playbackStartResolver = () => {
-      if (!settled) {
-        settled = true;
-        clearTimeout(timeout);
-        playbackStartResolver = null;
-        resolve(true);
-      }
-    };
-  });
-};
-
->>>>>>> theirs
-window.onSpotifyWebPlaybackSDKReady = () => {
-  const token = localStorage.getItem("access_token");
->>>>>>> theirs
-
   function rememberDuration(id, duration) {
     if (!Number.isFinite(duration) || duration <= 0 || durations.get(id) === duration) return;
     durations.set(id, duration);
     try { sessionStorage.setItem(durationKey, JSON.stringify([...durations])); } catch { /* Optional cache. */ }
   }
-<<<<<<< ours
   function check(round) {
     if (currentRound !== round || round.controller.signal.aborted)
       throw round.controller.signal.reason || new Error("Round annullato.");
@@ -175,6 +87,10 @@ window.onSpotifyWebPlaybackSDKReady = () => {
     });
     instance.addListener("ready", event => {
       if (instance !== player) return;
+      if (currentRound?.device && currentRound.device !== event.device_id) {
+        const error = new Error("Dispositivo Spotify cambiato durante il round. Riprova SCAN.");
+        abandon(currentRound, error); notifyError(error); return;
+      }
       deviceId = event.device_id; active = false;
       for (const callback of [...readyListeners]) callback(deviceId);
     });
@@ -183,10 +99,16 @@ window.onSpotifyWebPlaybackSDKReady = () => {
       deviceId = null; active = false;
       notifyError(new Error("Dispositivo Spotify offline. Riprova SCAN per riconnetterlo."));
     });
-    instance.addListener("player_state_changed", state => {
+    instance.addListener("player_state_changed", () => {
       if (instance !== player) return;
-      active = Boolean(state);
-      for (const callback of [...stateListeners]) callback(state);
+      const sequence = ++stateSequence;
+      // Event payloads can refer to the previous round on this same device.
+      core.withTimeout(instance.getCurrentState(), config.requestTimeoutMs, "Timeout stato Spotify.")
+        .then(state => {
+          if (instance !== player || sequence !== stateSequence) return;
+          active = Boolean(state);
+          for (const callback of [...stateListeners]) callback(state);
+        }).catch(error => { if (instance === player && sequence === stateSequence) notifyError(error); });
     });
     for (const type of ["initialization_error", "authentication_error", "account_error", "playback_error", "autoplay_failed"]) {
       instance.addListener(type, () => {
@@ -318,11 +240,7 @@ window.onSpotifyWebPlaybackSDKReady = () => {
         : "Ripristino del volume Spotify non confermato. Riprova SCAN.");
   }
   function choosePosition(duration) {
-    const maximum = duration - config.roundMs - config.endMarginMs;
-    if (!Number.isFinite(maximum) || maximum < config.minimumStartMs)
-      throw new Error("Traccia troppo breve per un segmento casuale di 45 secondi senza intro.");
-    return config.minimumStartMs +
-      Math.floor(Math.random() * (maximum - config.minimumStartMs + 1));
+    return core.randomPosition(duration, config.roundMs, config.endMarginMs, Math.random, config.minimumStartMs);
   }
   function atPosition(state, round) {
     return matches(state, round.song.id) && !state.loading &&
@@ -331,7 +249,10 @@ window.onSpotifyWebPlaybackSDKReady = () => {
   async function prepareTrack(round, trace) {
     const knownDuration = round.song.durationMs || durations.get(round.song.id);
     if (knownDuration) round.position = choosePosition(knownDuration);
-    await ensureActive(trace, round);
+    // Establish the SDK device without transferring playback until mute is verified.
+    const device = await prepare();
+    check(round);
+    round.instance = player; round.device = device;
     check(round);
     const volume = await step(round, round.instance.getVolume(), "Volume Spotify non disponibile.");
     if (!Number.isFinite(volume) || volume <= 0 || volume > 1)
@@ -340,9 +261,9 @@ window.onSpotifyWebPlaybackSDKReady = () => {
     desiredVolume = volume;
     await volumeFor(round, 0);
     trace("mute confirmed");
+    await ensureActive(trace, round);
+    await volumeFor(round, 0); // Transfer must not change the pre-load mute.
 
-<<<<<<< ours
-<<<<<<< ours
     // No play request can precede the successful zero-volume readback.
     const request = () => auth.api("/me/player/play?device_id=" + encodeURIComponent(round.device), {
       body: { uris: ["spotify:track:" + round.song.id], position_ms: round.position || 0 },
@@ -390,20 +311,22 @@ window.onSpotifyWebPlaybackSDKReady = () => {
       state.position > moving.state.position && state.position <= round.position + config.maximumStartDriftMs);
     check(round);
     trace("random playback confirmed muted");
+    round.onStarting();
+    check(round);
     await volumeFor(round, round.volume);
     const confirmed = await stateFor(round, state => matches(state, round.song.id) && !state.paused &&
       !state.loading && state.position >= round.position &&
       state.position <= round.position + config.maximumStartDriftMs);
     round.started = true;
-    trace("audible playback confirmed");
+    trace("SDK playback and volume confirmed (physical audio unmeasured)");
     return confirmed.at;
   }
-  async function play(song, trace = () => {}, { signal, readyToStart = Promise.resolve() } = {}) {
+  async function play(song, trace = () => {}, { signal, readyToStart = Promise.resolve(), onStarting = () => {} } = {}) {
     if (currentRound || pendingPause) throw new Error("Il round precedente non è ancora terminato.");
     // Attach the countdown rejection handler immediately, even if setup fails.
     readyToStart.catch(() => {});
-    const round = { id: ++generation, song, controller: new AbortController(),
-      instance: null, device: null, started: false, position: null, volume: desiredVolume };
+    const round = { song, controller: new AbortController(),
+      instance: null, device: null, started: false, position: null, volume: desiredVolume, onStarting };
     const abort = () => abandon(round, signal.reason || new Error("Round annullato."));
     round.detach = () => signal?.removeEventListener("abort", abort);
     currentRound = round;
@@ -425,62 +348,6 @@ window.onSpotifyWebPlaybackSDKReady = () => {
     if (round && !round.started) {
       abandon(round, new Error("Preparazione annullata."));
       return;
-=======
-
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
-  player = new Spotify.Player({
-    name: "Bamboc-Hit Player",
-    getOAuthToken: (cb) => {
-      const freshToken = localStorage.getItem("access_token");
-      cb(freshToken);
-    },
-    volume: 0.8,
-  });
-
-  window.player = player;
-
-  player.addListener("ready", ({ device_id }) => {
-    window.device_id = device_id;
-
-    if (resolvePlayerReady) {
-      resolvePlayerReady(device_id);
-      resolvePlayerReady = null;
-    }
-  });
-
-  player.addListener("player_state_changed", (state) => {
-    if (state && state.paused === false && playbackStartResolver) {
-      playbackStartResolver();
-    }
-  });
-
-  player.addListener("not_ready", ({ device_id }) => {
-    console.warn("⚠️ Player offline:", device_id);
-  });
-
-  player.addListener("initialization_error", ({ message }) => {
-    console.error("Initialization error:", message);
-  });
-
-  player.addListener("authentication_error", ({ message }) => {
-    console.error("Authentication error:", message);
-  });
-
-  player.addListener("account_error", ({ message }) => {
-    console.error("Account error:", message);
-  });
-
-  player.addListener("playback_error", ({ message }) => {
-    console.error("Playback error:", message);
-  });
-
-  player.connect().then((success) => {
-    if (!success) {
-      console.error("❌ Connessione player fallita");
->>>>>>> theirs
     }
     if (round) {
       currentRound = null;

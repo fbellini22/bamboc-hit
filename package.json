@@ -6,7 +6,8 @@
   "engines": { "node": ">=22" },
   "scripts": {
     "check": "node scripts/check.mjs",
-    "test": "node tests/run.mjs",
+    "test": "node tests/run.mjs && node --test tests/*.test.js",
+    "validate:dataset": "node scripts/validate-dataset.js",
     "validate:data": "node scripts/validate-data.mjs",
     "validate:data:ci": "node scripts/validate-data.mjs --baseline",
     "ci": "npm run check && npm test && npm run validate:data:ci"
