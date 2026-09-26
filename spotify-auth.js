@@ -154,7 +154,7 @@
     await tokenRequest({ grant_type: "authorization_code", code,
       redirect_uri: config.redirectUri, code_verifier: pkce.verifier });
   }
-  async function api(path, { method = "PUT", body, signal } = {}) {
+  async function api(path, { method = "PUT", body, signal, onResponse } = {}) {
     const epoch = sessionEpoch;
     for (let attempt = 0; attempt < 2; attempt++) {
       if (signal?.aborted) throw signal.reason || new Error("Round annullato.");
@@ -180,12 +180,16 @@
       } finally { clearTimeout(timer); requests.delete(controller); signal?.removeEventListener("abort", abort); }
       if (epoch !== sessionEpoch) throw new LoginRequired("Sessione annullata. Accedi nuovamente.");
       if (signal?.aborted) throw signal.reason || new Error("Round annullato.");
+      onResponse?.(response.status);
       if (response.status === 401 && attempt === 0) {
         if (tokens?.accessToken === token) await getToken(true);
         continue;
       }
-      if (response.ok) return;
-      if (response.status === 401) { clear(); throw new LoginRequired("Sessione scaduta. Accedi nuovamente."); }
+      if (response.ok) return { status: response.status };
+      if (response.status === 401) {
+        const error = new LoginRequired("Sessione scaduta. Accedi nuovamente.", "AUTH_REQUIRED", "playback_api", 401);
+        clear(error); throw error;
+      }
       const messages = { 403: "Spotify richiede Premium e un account autorizzato per questa app.",
         404: "Dispositivo o traccia Spotify non disponibile.",
         429: "Troppe richieste Spotify. Riprova tra " + (response.headers.get("Retry-After") || "alcuni") + " secondi." };

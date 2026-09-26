@@ -12,6 +12,44 @@
   const isReady = () => Boolean(player && connectionReady && typeof deviceId === "string" && deviceId.trim());
   let active = false, connectionEpoch = 0, cancelConnection = null, stateSequence = 0;
   let currentRound = null, pendingPause = null, desiredVolume = config.defaultVolume;
+  let diagnosticSequence = 0;
+  const diagnosticListeners = new Set();
+  function phase(round, name) {
+    round.diagnostic.phase = name;
+    round.diagnostic.timeline.push({ phase: name, ms: Date.now() - round.createdAt });
+    if (round.diagnostic.timeline.length > 60) round.diagnostic.timeline.shift();
+    window.Bamboc.diagnostics("PLAYER", "round_phase", { roundId: round.diagnostic.roundId, phase: name });
+  }
+  function captureFailure(round, error) {
+    if (round.diagnostic.failure) return;
+    const d = round.diagnostic;
+    d.sdkReadyAtFailure = connectionReady; d.devicePresentAtFailure = Boolean(deviceId);
+    d.failure = { type: error.diagnosticCode || error.code || "Error", name: ["Error", "SpotifyError", "LoginRequired", "TypeError", "AbortError", "NotAllowedError", "NotSupportedError"].includes(error.name) ? error.name : "Error",
+      message: safeMessage(error), httpStatus: error.status ?? null,
+      confirmationTimeout: error.code === "PLAYBACK_NOT_CONFIRMED" || error.message === "Timeout stato Spotify." };
+    const snapshot = JSON.parse(JSON.stringify(d));
+    for (const callback of diagnosticListeners) callback(snapshot);
+    window.Bamboc.diagnostics("PLAYER", "round_failed", { roundId: d.roundId, phase: d.phase,
+      type: d.failure.type, status: error.status });
+  }
+  function safeMessage(error) {
+    // Only application-authored messages are shown. Arbitrary SDK rejection text
+    // may contain credentials/URLs and is deliberately not copied to the panel.
+    const message = String(error.message || "");
+    if (error.status === 429) return "Troppe richieste Spotify (HTTP 429).";
+    const local = error instanceof core.SpotifyError || [
+      "Timeout stato Spotify.", "Timeout regolazione volume Spotify.", "Volume Spotify non verificabile.",
+      "Questo browser non consente una preparazione silenziosa (per esempio iOS). Usa un browser con volume Spotify controllabile.",
+      "Ripristino del volume Spotify non confermato. Riprova SCAN.", "Volume Spotify non disponibile.",
+      "Il volume Spotify è a zero o non disponibile. Alzalo prima di riprovare.", "Timeout caricamento traccia.",
+      "Timeout pausa di preparazione.", "Timeout posizionamento casuale.", "Timeout ripresa Spotify.",
+      "Volume modificato durante la preparazione. Riprova senza usare altri controlli Spotify.",
+      "Traccia troppo breve o durata non valida per un segmento casuale di 45 secondi senza intro.",
+      "Arresto fotocamera non confermato.",
+    ].includes(message);
+    return local ? message.replace(/https?:\/\/\S+|Bearer\s+\S+|[A-Za-z0-9_~+\/=-]{40,}/gi, "[omesso]")
+      : "Errore SDK/browser: messaggio esterno omesso per evitare dati sensibili.";
+  }
   const stateListeners = new Set(), errorListeners = new Set(), readyListeners = new Set();
   const sdkEvents = ["ready", "not_ready", "player_state_changed", "initialization_error",
     "authentication_error", "account_error", "playback_error", "autoplay_failed"];
@@ -41,6 +79,14 @@
   }
   async function step(round, operation, message) {
     check(round);
+    const name = round.diagnostic.phase;
+    Promise.resolve(operation).then(() => {
+      window.Bamboc.diagnostics("PLAYER", currentRound === round ? "round_operation_completed" : "late_round_operation_ignored",
+        { roundId: round.diagnostic.roundId, phase: name });
+    }, () => {
+      window.Bamboc.diagnostics("PLAYER", "round_operation_rejected",
+        { roundId: round.diagnostic.roundId, phase: name });
+    });
     const value = await core.abortable(operation, round.controller.signal, config.requestTimeoutMs, message);
     check(round);
     return value;
@@ -56,6 +102,7 @@
   }
   function abandon(round, error) {
     if (currentRound !== round) return;
+    if (!/^(Round annullato|Round terminato|Preparazione annullata|Pagina chiusa)/.test(error.message || "")) captureFailure(round, error);
     currentRound = null;
     round.controller.abort(error);
     round.detach();
@@ -64,6 +111,7 @@
     disconnectDevice(error);
   }
   function notifyError(error) {
+    if (currentRound) captureFailure(currentRound, error);
     if (currentRound && !currentRound.started) abandon(currentRound, error);
     for (const callback of [...errorListeners]) callback(error);
   }
@@ -135,6 +183,7 @@
     for (const type of ["initialization_error", "authentication_error", "account_error", "playback_error", "autoplay_failed"]) {
       instance.addListener(type, () => {
         if (instance !== player) return;
+        if (currentRound) currentRound.diagnostic.sdkEvent = type;
         const messages = {
           initialization_error: "Browser non compatibile con Spotify: controlla DRM e contenuti protetti.",
           authentication_error: "Autenticazione del player fallita. Riprova o accedi nuovamente.",
@@ -209,11 +258,19 @@
     if (round) { check(round); round.instance = player; round.device = id; }
     trace("device ready");
     if (!active) {
+      if (round) { phase(round, "transfer"); round.diagnostic.transfer = { result: "pending" }; }
       trace("transfer requested");
-      await auth.api("/me/player", { body: { device_ids: [id], play: false }, signal: round?.controller.signal });
+      try {
+        const result = await auth.api("/me/player", { body: { device_ids: [id], play: false }, signal: round?.controller.signal,
+          onResponse: status => { if (round) round.diagnostic.transfer = { result: status >= 200 && status < 300 ? "success" : "http_error", httpStatus: status }; } });
+        if (round) round.diagnostic.transfer = { result: "success", httpStatus: result?.status ?? null };
+      } catch (error) {
+        if (round) round.diagnostic.transfer = { result: "failed", httpStatus: error.status ?? null };
+        throw error;
+      }
       if (round) check(round);
       active = true;
-    }
+    } else if (round) round.diagnostic.transfer = { result: "skipped_device_already_active" };
     return id;
   }
   function matches(state, id) {
@@ -253,7 +310,13 @@
   }
   async function stateFor(round, predicate) {
     check(round);
-    const waiter = waitForState(predicate, config.playbackTimeoutMs,
+    const waiter = waitForState(state => {
+      round.diagnostic.lastState = state ? { present: true, matchesRequestedTrack: matches(state, round.song.id),
+        paused: Boolean(state.paused), loading: Boolean(state.loading),
+        positionMs: Number.isFinite(state.position) ? state.position : null,
+        durationMs: Number.isFinite(state.duration) ? state.duration : null } : { present: false };
+      return predicate(state);
+    }, config.playbackTimeoutMs,
       { instance: round.instance, signal: round.controller.signal });
     try {
       waiter.arm(); void waiter.sample();
@@ -263,8 +326,10 @@
     } finally { waiter.cancel(); }
   }
   async function volumeFor(round, volume) {
+    round.diagnostic.requestedVolume = volume;
     await step(round, round.instance.setVolume(volume), "Timeout regolazione volume Spotify.");
     const actual = await step(round, round.instance.getVolume(), "Volume Spotify non verificabile.");
+    round.diagnostic.observedVolume = Number.isFinite(actual) ? actual : null;
     if (!Number.isFinite(actual) || Math.abs(actual - volume) > 0.0001)
       throw new Error(volume === 0
         ? "Questo browser non consente una preparazione silenziosa (per esempio iOS). Usa un browser con volume Spotify controllabile."
@@ -278,28 +343,47 @@
       Math.abs(state.position - round.position) <= config.positionToleranceMs;
   }
   async function prepareTrack(round, trace) {
+    phase(round, "duration_lookup_and_random_position");
     const knownDuration = round.song.durationMs || durations.get(round.song.id);
+    round.diagnostic.durationSource = round.song.durationMs ? "local" : knownDuration ? "cache" : "SDK_pending";
+    round.diagnostic.knownDurationMs = Number.isFinite(knownDuration) ? knownDuration : null;
     if (knownDuration) round.position = choosePosition(knownDuration);
+    phase(round, "prepare_device");
     // Establish the SDK device without transferring playback until mute is verified.
     const device = await prepare();
     check(round);
     round.instance = player; round.device = device;
+    round.diagnostic.sdkReadyBeforePreparation = connectionReady;
+    round.diagnostic.devicePresentBeforePreparation = Boolean(device);
     check(round);
+    phase(round, "read_volume");
     const volume = await step(round, round.instance.getVolume(), "Volume Spotify non disponibile.");
+    round.diagnostic.initialVolume = Number.isFinite(volume) ? volume : null;
     if (!Number.isFinite(volume) || volume <= 0 || volume > 1)
       throw new Error("Il volume Spotify è a zero o non disponibile. Alzalo prima di riprovare.");
     round.volume = volume;
     desiredVolume = volume;
+    phase(round, "mute_before_transfer");
     await volumeFor(round, 0);
     trace("mute confirmed");
     await ensureActive(trace, round);
+    phase(round, "mute_after_transfer");
     await volumeFor(round, 0); // Transfer must not change the pre-load mute.
 
     // No play request can precede the successful zero-volume readback.
-    const request = () => auth.api("/me/player/play?device_id=" + encodeURIComponent(round.device), {
+    const request = async () => {
+      phase(round, "play_command");
+      const attempt = { positionMs: round.position || 0, result: "pending" };
+      round.diagnostic.playbackCommands.push(attempt);
+      try {
+        const result = await auth.api("/me/player/play?device_id=" + encodeURIComponent(round.device), {
       body: { uris: ["spotify:track:" + round.song.id], position_ms: round.position || 0 },
       signal: round.controller.signal,
-    });
+      onResponse: status => { attempt.httpStatus = status; attempt.result = status >= 200 && status < 300 ? "success" : "http_error"; },
+        });
+        attempt.result = "success"; attempt.httpStatus = result?.status ?? null;
+      } catch (error) { attempt.result = "failed"; attempt.httpStatus = error.status ?? null; throw error; }
+    };
     trace("silent play requested");
     try { await step(round, request(), "Timeout caricamento traccia."); }
     catch (error) {
@@ -312,51 +396,78 @@
       trace("silent play retried");
       await step(round, request(), "Timeout caricamento traccia.");
     }
+    phase(round, "confirm_loaded_track_and_duration");
     const loaded = await stateFor(round, state => matches(state, round.song.id) && !state.loading &&
       Number.isFinite(state.duration) && state.duration > 0);
     rememberDuration(round.song.id, loaded.state.duration);
+    round.diagnostic.sdkDurationMs = loaded.state.duration;
+    phase(round, "validate_duration_and_random_position");
     if (!knownDuration || round.position > loaded.state.duration - config.roundMs - config.endMarginMs)
       round.position = choosePosition(loaded.state.duration);
     trace("duration ready");
+    round.diagnostic.randomPositionMs = round.position;
+    round.diagnostic.positionValidForSDKDuration = Number.isFinite(round.position) && round.position >= config.minimumStartMs &&
+      round.position <= loaded.state.duration - config.roundMs - config.endMarginMs;
 
+    phase(round, "pause_preparation");
     await step(round, round.instance.pause(), "Timeout pausa di preparazione.");
+    phase(round, "confirm_paused");
     await stateFor(round, state => matches(state, round.song.id) && state.paused && !state.loading);
     trace("random seek requested");
+    phase(round, "seek_random_position");
     await step(round, round.instance.seek(round.position), "Timeout posizionamento casuale.");
+    phase(round, "confirm_parked_position");
     await stateFor(round, state => state?.paused && atPosition(state, round));
+    phase(round, "verify_parked_mute");
     await volumeFor(round, 0);
     trace("random position parked");
   }
   async function startPrepared(round, trace) {
     check(round);
     // The track was parked, not left running muted while the countdown elapsed.
+    phase(round, "confirm_parked_before_resume");
     await stateFor(round, state => state?.paused && atPosition(state, round));
+    phase(round, "verify_mute_before_resume");
     const volume = await step(round, round.instance.getVolume(), "Volume Spotify non verificabile.");
     if (volume !== 0) throw new Error("Volume modificato durante la preparazione. Riprova senza usare altri controlli Spotify.");
     trace("silent resume requested");
+    phase(round, "resume");
     await step(round, round.instance.resume(), "Timeout ripresa Spotify.");
+    phase(round, "confirm_unpaused_position");
     const moving = await stateFor(round, state => matches(state, round.song.id) && !state.paused &&
       !state.loading && state.position >= round.position && state.position <= round.position + config.maximumStartDriftMs);
     // An unpaused flag alone is insufficient: require measured progression.
+    phase(round, "confirm_position_progression");
     await stateFor(round, state => matches(state, round.song.id) && !state.paused && !state.loading &&
       state.position > moving.state.position && state.position <= round.position + config.maximumStartDriftMs);
     check(round);
     trace("random playback confirmed muted");
+    phase(round, "VIA");
     round.onStarting();
     check(round);
+    phase(round, "restore_volume");
     await volumeFor(round, round.volume);
+    phase(round, "confirm_playback_after_unmute");
     const confirmed = await stateFor(round, state => matches(state, round.song.id) && !state.paused &&
       !state.loading && state.position >= round.position &&
       state.position <= round.position + config.maximumStartDriftMs);
     round.started = true;
+    phase(round, "playing_confirmed");
     trace("SDK playback and volume confirmed (physical audio unmeasured)");
     return confirmed.at;
   }
-  async function play(song, trace = () => {}, { signal, readyToStart = Promise.resolve(), onStarting = () => {} } = {}) {
+  async function play(song, trace = () => {}, { signal, readyToStart = Promise.resolve(), onStarting = () => {}, roundId } = {}) {
     if (currentRound || pendingPause) throw new Error("Il round precedente non è ancora terminato.");
     // Attach the countdown rejection handler immediately, even if setup fails.
     readyToStart.catch(() => {});
     const round = { song, controller: new AbortController(),
+      createdAt: Date.now(), diagnostic: { roundId: roundId ?? ++diagnosticSequence, trackId: song.id,
+        positionToleranceMs: config.positionToleranceMs, maximumStartDriftMs: config.maximumStartDriftMs,
+        confirmationTimeoutMs: config.playbackTimeoutMs,
+        localLookup: "found", localDurationPresent: song.durationMs !== undefined,
+        localDurationMs: Number.isFinite(song.durationMs) ? song.durationMs : null,
+        localDurationValid: Number.isFinite(song.durationMs) && song.durationMs > 0,
+        transfer: { result: "not_attempted" }, playbackCommands: [], sdkEvent: null, timeline: [] },
       instance: null, device: null, started: false, position: null, volume: desiredVolume, onStarting };
     const abort = () => abandon(round, signal.reason || new Error("Round annullato."));
     round.detach = () => signal?.removeEventListener("abort", abort);
@@ -366,10 +477,12 @@
       if (signal?.aborted) abort();
       check(round);
       await prepareTrack(round, trace);
+      phase(round, "wait_countdown_and_camera_stop");
       await core.abortable(readyToStart, round.controller.signal);
       check(round);
       return await startPrepared(round, trace);
     } catch (error) {
+      if (!round.controller.signal.aborted) captureFailure(round, error);
       abandon(round, error);
       throw error;
     }
@@ -401,16 +514,24 @@
       await waiter.promise;
     } finally { waiter.cancel(); }
   }
-  function disconnect() {
-    if (currentRound) abandon(currentRound, new Error("Player disconnesso."));
+  function disconnect(error = new Error("Player disconnesso.")) {
+    if (currentRound) abandon(currentRound, error);
     else disconnectDevice();
   }
-  function resetSession() {
-    disconnect(); desiredVolume = config.defaultVolume; durations.clear();
+  function resetSession(error) {
+    disconnect(error); desiredVolume = config.defaultVolume; durations.clear();
     try { sessionStorage.removeItem(durationKey); } catch { /* Optional storage. */ }
   }
   auth.onInvalidated(resetSession);
   window.Bamboc.playback = { prepare, activate, ensureActive, play, stop, disconnect, resetSession, isReady, matches, waitForState,
+    diagnoseInterruption(state) {
+      if (currentRound?.started) {
+        currentRound.diagnostic.lastState = state ? { present: true, paused: Boolean(state.paused),
+          matchesRequestedTrack: matches(state, currentRound.song.id) } : { present: false };
+        captureFailure(currentRound, failure("PLAYBACK_INTERRUPTED", "Riproduzione interrotta dopo la conferma SDK."));
+      }
+    },
+    onDiagnostic(callback) { diagnosticListeners.add(callback); return () => diagnosticListeners.delete(callback); },
     onError(callback) { errorListeners.add(callback); return () => errorListeners.delete(callback); },
     onState(callback) { stateListeners.add(callback); return () => stateListeners.delete(callback); },
   };

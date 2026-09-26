@@ -26,7 +26,7 @@ window.Bamboc.diagnostics = (() => {
     if (!enabled) return;
     // No Error objects, URLs, response bodies, SDK messages or credentials.
     const safe = { version: "oauth-diag-1" };
-    for (const key of ["phase", "type", "status", "present", "ok", "clientId", "redirectUri"])
+    for (const key of ["phase", "type", "status", "present", "ok", "clientId", "redirectUri", "roundId"])
       if (["string", "number", "boolean"].includes(typeof details[key])) safe[key] = details[key];
     console.debug("[BAMBOC " + area + "] " + event, safe);
   };

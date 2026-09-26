@@ -4,6 +4,11 @@
   const catalog = core.createCatalog(window.SONGS);
   let round = new core.RoundState();
   const el = id => document.getElementById(id);
+  el("playback-diagnostic").hidden = true;
+  playback.onDiagnostic?.(snapshot => {
+    el("playback-diagnostic-data").textContent = JSON.stringify(snapshot, null, 2);
+    el("playback-diagnostic").hidden = false;
+  });
   let song = null, startedAt = 0, frame = null, deadlineTimer = null, goTimer = null;
   let cameraStopped = Promise.resolve(), revealAfterStop = false;
   let spotifyState = "AUTH_REQUIRED", sessionId = 0, connecting = null;
@@ -155,6 +160,7 @@
     if (!found) { message("Canzone non presente nel database o voce non valida."); return false; }
     const id = ++roundId;
     controller = new AbortController();
+    el("playback-diagnostic").hidden = true;
     const signal = controller.signal;
     song = found;
     move("preparing");
@@ -172,7 +178,7 @@
       // The player starts preparing NOW; the promise is a gate, not a delayed play.
       const readyToStart = Promise.all([countdown, core.withTimeout(cameraStopped,
         config.requestTimeoutMs, "Arresto fotocamera non confermato.")]);
-      startedAt = await playback.play(song, trace, { signal, readyToStart,
+      startedAt = await playback.play(song, trace, { signal, readyToStart, roundId: id,
         onStarting() {
           if (id !== roundId || signal.aborted || leaving) return;
           el("preplay-count").textContent = "VIA!";
@@ -299,6 +305,7 @@
   });
   playback.onState(state => {
     if (round.phase === "playing" && (!state || state.paused || !playback.matches(state, song.id))) {
+      playback.diagnoseInterruption?.(state);
       message("Riproduzione interrotta."); void finish(true);
     }
   });

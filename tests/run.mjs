@@ -1064,6 +1064,95 @@ test("OAuth diagnostic: PKCE storage failure is explicit and cannot redirect", a
   assert.equal(c.location.assigned,undefined);
 });
 
+test("mobile diagnostic: 3-2-1 gate, direct random play command, progression, VIA, unmute", async()=>{
+  const f=playerFixture(),clock=fakeClock(),ticks=[],events=[];
+  f.c.Bamboc.diagnostics=(_area,event,details)=>events.push({event,...details});
+  const gate=core.preplayCountdown(3000,n=>ticks.push(n),{now:clock.now,schedule:clock.schedule,unschedule:clock.unschedule});
+  let via=false;
+  const pending=f.api.play({...song,durationMs:180000},()=>{}, {roundId:42,readyToStart:gate,onStarting(){
+    via=true;assert.equal(f.instance.volume,0);assert.equal(f.instance.state.paused,false);
+    assert.deepEqual(ticks,[3,2,1,0]);
+  }});
+  await delay(20);assert.equal(f.instance.state.paused,true);assert.equal(via,false);
+  assert.equal(f.requests.length,1);assert.ok(f.requests[0].body.position_ms>=1000);
+  assert.ok(f.requests[0].body.position_ms<=133000);assert.equal(f.requests[0].volume,0);
+  await clock.advance(1000);await clock.advance(1000);await clock.advance(1000);await pending;
+  const phases=events.filter(x=>x.event==="round_phase").map(x=>x.phase);
+  assert.ok(phases.indexOf("confirm_position_progression")<phases.indexOf("VIA"));
+  assert.ok(phases.indexOf("VIA")<phases.indexOf("restore_volume"));
+  assert.ok(events.filter(x=>x.event.startsWith("round_")).every(x=>x.roundId===42));assert.equal(via,true);await f.api.stop();
+});
+test("mobile diagnostic: mute, load, park, resume, progression and unmute failures are distinguishable", async()=>{
+  for(const [options,expected] of [[{ios:true},"mute_before_transfer"],[{wrongTrack:true},"confirm_loaded_track_and_duration"],
+    [{duration:0},"confirm_loaded_track_and_duration"],[{duration:30000},"validate_duration_and_random_position"],
+    [{pauseFail:true},"pause_preparation"],[{seekIgnore:true},"confirm_parked_position"],
+    [{resumeFail:true},"resume"],[{stalled:true},"confirm_position_progression"],[{restoreFail:true},"restore_volume"]]) {
+    const f=playerFixture(options),snapshots=[];f.api.onDiagnostic(d=>snapshots.push(d));
+    await assert.rejects(f.api.play(song,()=>{},{roundId:71}));
+    assert.equal(snapshots.length,1);const d=snapshots[0];assert.equal(d.phase,expected);assert.equal(d.roundId,71);
+    assert.equal(d.trackId,id);assert.equal(d.localDurationPresent,false);assert.equal(d.sdkReadyBeforePreparation,true);
+    assert.equal(d.devicePresentBeforePreparation,true);
+    if(options.ios) {assert.equal(d.transfer.result,"not_attempted");assert.equal(d.playbackCommands.length,0);assert.equal(d.observedVolume,1);}
+    if(options.stalled){assert.equal(d.failure.confirmationTimeout,true);assert.equal(d.lastState.paused,false);}
+  }
+});
+test("mobile diagnostic: transfer/play HTTP failures retain status and command position", async()=>{
+  for(const target of ["/me/player","/me/player/play"]) {
+    const f=playerFixture({realAuth:true,tokens:savedSession(),fetcher:async url=>response(url.includes(target)&&
+      (target.endsWith("play")||!url.includes("/play?"))?403:204)}),reports=[];
+    f.api.onDiagnostic(d=>reports.push(d));await assert.rejects(f.api.play({...song,durationMs:180000}));
+    const d=reports[0];assert.equal(d.failure.httpStatus,403);
+    assert.equal(d.phase,target.endsWith("play")?"play_command":"transfer");
+    if(target.endsWith("play")){assert.equal(d.transfer.httpStatus,204);assert.equal(d.playbackCommands[0].httpStatus,403);assert.ok(d.playbackCommands[0].positionMs>=1000);}
+  }
+});
+test("mobile diagnostic: panel survives SDK authentication reset and displays safe round snapshot", async()=>{
+  const gate=defer(),f=sessionFixture({apiGate:gate.promise});await flush();
+  f.click("scan-btn");await flush();const pending=f.scan("spotify:track:"+id);await flush();
+  f.player.instance.emit("authentication_error",{message:"SECRET_ACCESS_TOKEN SECRET_VERIFIER"});await pending;
+  assert.equal(f.element("playback-diagnostic").hidden,false);
+  const text=f.element("playback-diagnostic-data").textContent,d=JSON.parse(text);
+  assert.equal(d.sdkEvent,"authentication_error");assert.equal(d.failure.type,"SDK_AUTHENTICATION_ERROR");
+  assert.equal(text.includes("SECRET"),false);assertLoggedOut(f);gate.resolve();
+});
+test("mobile diagnostic: SDK events during preparation are captured before cleanup", async()=>{
+  for(const event of ["playback_error","account_error","initialization_error"]) {
+    const gate=defer(),f=playerFixture({apiGate:gate.promise}),reports=[];f.api.onDiagnostic(d=>reports.push(d));
+    const pending=f.api.play(song);await delay(5);f.instance.emit(event,{message:"SECRET"});await assert.rejects(pending);
+    assert.equal(reports[0].sdkEvent,event);assert.equal(reports[0].failure.type,"SDK_"+event.toUpperCase());gate.resolve();
+  }
+});
+test("mobile diagnostic: unknown duration uses silent zero load and confirms SDK duration before random start", async()=>{
+  const f=playerFixture({stalled:true}),reports=[];f.api.onDiagnostic(d=>reports.push(d));await assert.rejects(f.api.play(song));
+  const d=reports[0];assert.equal(d.durationSource,"SDK_pending");assert.equal(d.playbackCommands[0].positionMs,0);
+  assert.equal(d.sdkDurationMs,180000);assert.equal(d.positionValidForSDKDuration,true);assert.ok(d.randomPositionMs>=1000);
+});
+test("mobile diagnostic: late operation keeps old round ID and cannot overwrite a new report", async()=>{
+  const gate=defer(),f=playerFixture({seekGate:gate.promise}),events=[],reports=[],controller=new AbortController();
+  f.c.Bamboc.diagnostics=(_a,event,details)=>events.push({event,...details});f.api.onDiagnostic(d=>reports.push(d));
+  const pending=f.api.play(song,()=>{},{roundId:81,signal:controller.signal});await delay(10);
+  controller.abort(new Error("Round annullato."));await assert.rejects(pending);
+  f.options.seekGate=null;f.options.stalled=true;await assert.rejects(f.api.play(song,()=>{},{roundId:82}));
+  const count=reports.length;gate.resolve();await delay(5);
+  assert.equal(reports.length,count);assert.equal(reports.at(-1).roundId,82);
+  assert.ok(events.some(e=>e.event==="late_round_operation_ignored"&&e.roundId===81&&e.phase==="seek_random_position"));
+});
+
+test("mobile diagnostic: arbitrary SDK rejection text is never exposed", async()=>{
+  const f=playerFixture(),reports=[];f.api.onDiagnostic(d=>reports.push(d));await f.api.prepare();
+  f.instance.setVolume=()=>Promise.reject(new Error("Timeout access_token=short-secret code=private verifier=secret"));
+  await assert.rejects(f.api.play(song));const text=JSON.stringify(reports);
+  assert.equal(text.includes("short-secret"),false);assert.equal(text.includes("private"),false);
+  assert.match(reports[0].failure.message,/omesso/);
+});
+test("mobile diagnostic: interruption after successful playback preserves observed pause", async()=>{
+  const f=sessionFixture();await flush();f.click("scan-btn");await flush();await f.scan("spotify:track:"+id);
+  f.player.setState({...f.player.instance.state,paused:true});await flush();
+  const d=JSON.parse(f.element("playback-diagnostic-data").textContent);
+  assert.equal(d.phase,"playing_confirmed");assert.equal(d.failure.type,"PLAYBACK_INTERRUPTED");
+  assert.equal(d.lastState.paused,true);assert.equal(f.element("playback-diagnostic").hidden,false);
+});
+
 let failures=0;
 export const results = [];
 for (const {name,run} of tests) {
