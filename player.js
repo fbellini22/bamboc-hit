@@ -1,6 +1,12 @@
 "use strict";
 (() => {
   const { config, core, auth } = window.Bamboc;
+  const traceAuth = (event, details) => window.Bamboc.diagnostics("PLAYER", event, details);
+  const diagnosed = (error, type, phase) => {
+    error.diagnosticCode = type; error.phase = phase;
+    traceAuth("error", { phase, type, status: error.status });
+    return error;
+  };
   let player = null, deviceId = null, connected = null, sdkLoading = null, connectionReady = false;
   const failure = (code, message) => new core.SpotifyError(code, message);
   const isReady = () => Boolean(player && connectionReady && typeof deviceId === "string" && deviceId.trim());
@@ -87,6 +93,7 @@
     const instance = new window.Spotify.Player({
       name: "Bamboc-Hit Player", volume: desiredVolume,
       getOAuthToken: callback => {
+        traceAuth("get_oauth_token");
         auth.getToken().then(token => { if (instance === player) callback(token); }).catch(error => {
           if (instance !== player) return;
           notifyError(error);
@@ -96,9 +103,11 @@
     });
     instance.addListener("ready", event => {
       if (instance !== player) return;
+      traceAuth("ready");
+      traceAuth("device_id_present", { present: typeof event?.device_id === "string" && Boolean(event.device_id.trim()) });
       if (typeof event?.device_id !== "string" || !event.device_id.trim()) {
         connectionReady = false; deviceId = null;
-        notifyError(failure("DEVICE_NOT_READY", "Spotify non ha fornito un dispositivo valido. Riconnetti Spotify.")); return;
+        notifyError(diagnosed(failure("DEVICE_NOT_READY", "Spotify non ha fornito un dispositivo valido. Riconnetti Spotify."), "DEVICE_MISSING", "ready")); return;
       }
       if (currentRound?.device && currentRound.device !== event.device_id) {
         const error = failure("DEVICE_NOT_READY", "Dispositivo Spotify cambiato durante il round. Riconnetti Spotify.");
@@ -136,6 +145,7 @@
         if (type !== "playback_error" && type !== "autoplay_failed") { deviceId = null; active = false; connectionReady = false; }
         const error = type === "authentication_error" ? new auth.LoginRequired(messages[type])
           : failure(type === "initialization_error" || type === "account_error" ? "PLAYER_NOT_READY" : "PLAYBACK_FAILED", messages[type]);
+        diagnosed(error, "SDK_" + type.toUpperCase(), "sdk_event");
         notifyError(error);
       });
     }
@@ -148,7 +158,9 @@
       await auth.getToken();
       if (epoch !== connectionEpoch) throw failure("PLAYER_NOT_READY", "Preparazione player annullata.");
       if (isReady()) return deviceId;
-      await loadSDK();
+      try { await loadSDK(); }
+      catch (error) { throw diagnosed(error, "SDK_LOAD_FAILED", "sdk_load"); }
+      traceAuth("sdk_loaded");
       if (epoch !== connectionEpoch) throw new Error("Preparazione player annullata.");
       if (!player) player = createPlayer();
       const instance = player;
@@ -157,13 +169,15 @@
         onReady = resolve; onError = reject;
         cancelConnection = reject;
         readyListeners.add(onReady); errorListeners.add(onError);
-        timer = setTimeout(() => reject(failure("PLAYER_NOT_READY", "Player Spotify non pronto. Riconnetti Spotify.")), config.readyTimeoutMs);
+        timer = setTimeout(() => reject(diagnosed(failure("PLAYER_NOT_READY", "Player Spotify non pronto. Riconnetti Spotify."), "PLAYER_READY_TIMEOUT", "ready")), config.readyTimeoutMs);
       });
       try {
+        traceAuth("connect_start");
         await Promise.all([ready, core.withTimeout(instance.connect(), config.readyTimeoutMs,
           "Timeout connessione Spotify.").then(ok => {
+          traceAuth("connect_result", { ok: Boolean(ok) });
           if (!ok) throw failure("PLAYER_NOT_READY", "Connessione Spotify non riuscita.");
-        })]);
+        }).catch(error => { throw diagnosed(error, "PLAYER_CONNECT_FAILED", "connect"); })]);
         if (epoch !== connectionEpoch || instance !== player) throw new Error("Connessione annullata.");
         if (!deviceId) throw failure("DEVICE_NOT_READY", "Dispositivo Spotify non pronto.");
         connectionReady = true;

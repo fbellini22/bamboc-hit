@@ -959,6 +959,111 @@ test("session: late round stop cannot close the camera of a newer session", asyn
   assert.equal(f.calls.filter(call=>call==="camera stop").length,stops);assertLoggedOut(f);
 });
 
+test("OAuth diagnostic: full reload preserves verifier/state and identical production redirect URIs", async()=>{
+  const logs=[], shared=storage();
+  const location={hostname:"fbellini22.github.io",origin:"https://fbellini22.github.io",pathname:"/bamboc-hit/index.html",
+    search:"?debug=1",href:"https://fbellini22.github.io/bamboc-hit/index.html?debug=1#top",assign(value){this.assigned=value;}};
+  const a=environment({location,sessionStorage:shared});a.console.debug=(...args)=>logs.push(args);load(a,"spotify-auth.js");
+  await a.Bamboc.auth.login();
+  const authorize=new URL(a.location.assigned),pkce=JSON.parse(shared.getItem("bamboc.spotify.pkce"));
+  const b=environment({sessionStorage:shared,location:{...location,pathname:"/bamboc-hit/",search:"?code=SECRET_CODE&state="+pkce.state,
+    href:"https://fbellini22.github.io/bamboc-hit/?code=SECRET_CODE&state="+pkce.state},
+    fetch:async(_url,request)=>{
+      assert.equal(request.body.get("redirect_uri"),authorize.searchParams.get("redirect_uri"));
+      assert.equal(request.body.get("redirect_uri"),"https://fbellini22.github.io/bamboc-hit/");
+      assert.equal(request.body.get("code_verifier"),pkce.verifier);
+      assert.equal(request.body.get("client_id"),"1031669a52cf4742b6e908a536a247e5");
+      return response(200,{access_token:"SECRET_ACCESS",refresh_token:"SECRET_REFRESH",expires_in:3600});
+    }});
+  b.console.debug=(...args)=>logs.push(args);load(b,"spotify-auth.js");await b.Bamboc.auth.handleRedirect();await b.Bamboc.auth.getToken();
+  assert.deepEqual(logs.map(x=>x[0]),["login_start","pkce_created","redirect_start","callback_detected","state_valid","verifier_found",
+    "token_exchange_start","token_exchange_success","token_valid"].map(x=>"[BAMBOC AUTH] "+x));
+  const serialized=JSON.stringify(logs);
+  for(const secret of [pkce.verifier,pkce.state,"SECRET_CODE","SECRET_ACCESS","SECRET_REFRESH"]) assert.equal(serialized.includes(secret),false);
+});
+test("OAuth diagnostic: callback completes before recovery/SDK; reset cannot clear PKCE before consumption", async()=>{
+  const gate=defer(),order=[];
+  const f=sessionFixture({tokens:expired,callback:"https://test.example/game/?code=c&state=s",
+    pkce:{verifier:"survives",state:"s",createdAt:Date.now()},fetcher:async(_url,request)=>{
+      order.push(request.body.get("grant_type"));assert.equal(request.body.get("code_verifier"),"survives");return gate.promise;
+    }});
+  await flush();assert.deepEqual(order,["authorization_code"]);assert.equal(f.player.instances.length,0);
+  assert.equal(f.element("scan-btn").disabled,true);
+  gate.resolve(response(200,{access_token:"new",refresh_token:"new-r",expires_in:3600}));await flush();
+  assert.deepEqual(order,["authorization_code"]);assert.equal(f.element("scan-btn").disabled,false);
+});
+test("OAuth diagnostic: missing verifier and state mismatch retain distinct causes", async()=>{
+  for(const [pkce,type] of [[null,"PKCE_VERIFIER_MISSING"],[{verifier:"v",state:"wrong",createdAt:Date.now()},"OAUTH_STATE_MISMATCH"]]) {
+    const c=authFixture({},async()=>{throw new Error("must not fetch");});c.location.href="https://test.example/game/?code=c&state=s";
+    if(pkce)c.sessionStorage.setItem("bamboc.spotify.pkce",JSON.stringify(pkce));
+    await assert.rejects(c.Bamboc.auth.handleRedirect(),e=>e.diagnosticCode===type&&e.phase==="callback_validation");
+  }
+});
+test("OAuth diagnostic: token exchange HTTP/network/invalid response retains phase and status", async()=>{
+  for(const [fetcher,type,status] of [
+    [async()=>response(400),"TOKEN_EXCHANGE_400",400],[async()=>response(401),"TOKEN_EXCHANGE_401",401],
+    [async()=>{throw new Error("sensitive network text");},"TOKEN_EXCHANGE_NETWORK",undefined],
+    [async()=>response(200,{}),"TOKEN_RESPONSE_INVALID",200]]) {
+    const c=authFixture({},fetcher);c.location.href="https://test.example/game/?code=c&state=s";
+    c.sessionStorage.setItem("bamboc.spotify.pkce",JSON.stringify({verifier:"v",state:"s",createdAt:Date.now()}));
+    await assert.rejects(c.Bamboc.auth.handleRedirect(),e=>e.diagnosticCode===type&&e.phase==="token_exchange"&&e.status===status);
+  }
+});
+test("OAuth diagnostic: SDK errors preserve SDK phase; account error never requires login", async()=>{
+  for(const type of ["authentication_error","account_error","initialization_error"]) {
+    const f=playerFixture({noReady:true});const errors=[];f.api.onError(e=>errors.push(e));
+    const pending=f.api.prepare();await delay(0);f.instance.emit(type,{message:"SECRET_SDK_MESSAGE"});
+    await assert.rejects(pending,e=>e.diagnosticCode==="SDK_"+type.toUpperCase()&&e.phase==="sdk_event");
+    assert.equal(errors[0].code,type==="authentication_error"?"AUTH_REQUIRED":"PLAYER_NOT_READY");
+    if(type==="account_error")assert.match(errors[0].message,/Premium/);
+  }
+});
+test("OAuth diagnostic: SCAN impossible for callback/exchange/SDK failures before READY", async()=>{
+  for(const options of [
+    {tokens:{},callback:"https://test.example/game/?code=c&state=s"},
+    {tokens:{},callback:"https://test.example/game/?code=c&state=s",pkce:{verifier:"v",state:"bad",createdAt:Date.now()}},
+    ...[400,401].map(status=>({tokens:{},callback:"https://test.example/game/?code=c&state=s",
+      pkce:{verifier:"v",state:"s",createdAt:Date.now()},fetcher:async()=>response(status)})),
+    {connectFalse:true},{readyDevice:""},{authError:true}]) {
+    const f=sessionFixture(options);await flush();assert.equal(f.element("scan-btn").disabled,true);
+    f.click("scan-btn");await flush();assert.equal(f.calls.includes("camera start"),false);
+  }
+  for(const type of ["account_error","initialization_error"]){
+    const f=sessionFixture({noReady:true});await flush();f.player.instance.emit(type,{});await flush();
+    assert.equal(f.element("scan-btn").disabled,true);assert.equal(f.element("login-screen").hidden,true);
+  }
+});
+test("OAuth diagnostic: connection failure, ready timeout and missing device have distinct types", async()=>{
+  for(const [options,type] of [[{connectFalse:true},"PLAYER_CONNECT_FAILED"],[{noReady:true},"PLAYER_READY_TIMEOUT"],[{readyDevice:""},"DEVICE_MISSING"]]){
+    const f=playerFixture(options);await assert.rejects(f.api.prepare(),e=>e.diagnosticCode===type);
+  }
+});
+test("OAuth diagnostic: debug opt-in survives reload and debug=0 disables output", ()=>{
+  const shared=storage(),logs=[];
+  for(const search of ["?debug=1","","?debug=0",""]){
+    const c=environment({sessionStorage:shared,location:{search,hostname:"test",origin:"https://test",pathname:"/"}});
+    c.console.debug=(...args)=>logs.push(args);c.Bamboc.diagnostics("AUTH","probe");
+  }
+  assert.equal(logs.length,2);
+});
+
+test("OAuth diagnostic: player logs only safe readiness facts, never device/token/SDK message", async()=>{
+  const f=playerFixture(),logs=[];f.c.location.search="?debug=1";load(f.c,"config.js");
+  f.c.console.debug=(...args)=>logs.push(args);
+  await f.api.prepare();f.instance.oauthToken(()=>{});await delay(0);
+  f.instance.emit("account_error",{message:"SECRET_SDK_MESSAGE"});
+  const text=JSON.stringify(logs);
+  for(const event of ["sdk_loaded","connect_start","connect_result","ready","device_id_present","get_oauth_token"])
+    assert.ok(logs.some(x=>x[0]==="[BAMBOC PLAYER] "+event));
+  assert.equal(text.includes("SECRET_SDK_MESSAGE"),false);assert.equal(text.includes(f.instance.device),false);
+  assert.ok(logs.some(x=>x[1].type==="SDK_ACCOUNT_ERROR"));
+});
+test("OAuth diagnostic: PKCE storage failure is explicit and cannot redirect", async()=>{
+  const c=authFixture({},async()=>response(200));c.sessionStorage.setItem=()=>{throw new Error("denied");};
+  await assert.rejects(c.Bamboc.auth.login(),e=>e.diagnosticCode==="PKCE_STORAGE_FAILED");
+  assert.equal(c.location.assigned,undefined);
+});
+
 let failures=0;
 export const results = [];
 for (const {name,run} of tests) {

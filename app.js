@@ -46,7 +46,8 @@
     }
     message(error.message || "Operazione non riuscita. Riprova.");
     el("status").setAttribute("data-error-code", core.errorCode(error));
-    if (config.debug) console.error(error);
+    window.Bamboc.diagnostics("PLAYER", "error", { phase: error.phase || "app",
+      type: error.diagnosticCode || core.errorCode(error), status: error.status });
     return false;
   }
   function resetSession(error) {
@@ -82,6 +83,7 @@
         if (!auth.hasValidToken()) throw new auth.LoginRequired("Accedi a Spotify per iniziare.");
         if (!playback.isReady()) throw new core.SpotifyError("DEVICE_NOT_READY", "Dispositivo Spotify non pronto. Riconnetti Spotify.");
         spotifyState = "PLAYER_READY"; el("status").setAttribute("data-error-code", ""); message("Premi SCAN per iniziare.");
+        window.Bamboc.diagnostics("PLAYER", "scan_enabled");
       } catch (error) {
         if (epoch !== sessionId || leaving) return;
         if (report(error)) return;
@@ -245,7 +247,8 @@
       if (id !== roundId || leaving) return;
       move("stop-error");
       message("Arresto non confermato. Premi RIPROVA STOP prima del prossimo round.");
-      if (config.debug) console.error(error);
+      window.Bamboc.diagnostics("PLAYER", "error", { phase: "stop",
+        type: error.diagnosticCode || core.errorCode(error), status: error.status });
     }
   }
   el("login-btn").addEventListener("click", async () => {
