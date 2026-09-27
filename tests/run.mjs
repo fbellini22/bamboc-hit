@@ -8,7 +8,7 @@ const coreModule = { exports: {} };
 vm.runInNewContext(await readFile(new URL("core.js", root), "utf8"), { module: coreModule, URL, setTimeout, clearTimeout });
 const core = coreModule.exports;
 const sources = Object.fromEntries(await Promise.all(
-  ["config.js", "browser-diagnostics.js", "spotify-auth.js", "player.js", "scanner.js", "app.js", "song.js"]
+  ["config.js", "browser-diagnostics.js", "oauth-diagnostics.js", "spotify-auth.js", "player.js", "scanner.js", "app.js", "song.js"]
     .map(async name => [name, await readFile(new URL(name, root), "utf8")])
 ));
 const tests = [];
@@ -40,6 +40,7 @@ function environment(extra = {}) {
     requestTimeoutMs: 80, pollMs: 5 };
   context.Bamboc.core = core;
   vm.runInContext(sources["browser-diagnostics.js"], context);
+  vm.runInContext(sources["oauth-diagnostics.js"], context);
   return context;
 }
 function load(context, file) { vm.runInContext(sources[file], context, {filename:file}); }
@@ -1283,6 +1284,165 @@ test("browser diagnostics preserve HTTP errors, visibility and camera feature/pe
   assert.equal(d.environment.policy.camera,false);assert.equal(d.environment.visibility,"visible");
   assert.ok(d.events.some(e=>e.event==="play_http_response"&&e.status===403));
   assert.equal(d.transfer,"not_used_direct_device");
+});
+
+const oauthEvents = c => c.Bamboc.oauthDiagnostics.snapshot().events;
+test("OAuth mobile: all exact-message branches fail before token exchange with independent facts", async()=>{
+  const now=Date.now(), valid={verifier:"SECRET_VERIFIER",state:"SECRET_STATE",createdAt:now};
+  for(const [pkce,query,type] of [
+    [null,"code=SECRET_CODE&state=SECRET_STATE","PKCE_VERIFIER_MISSING"],
+    [{...valid,verifier:""},"code=SECRET_CODE&state=SECRET_STATE","PKCE_VERIFIER_MISSING"],
+    [valid,"code=SECRET_CODE&state=wrong","OAUTH_STATE_MISMATCH"],
+    [{...valid,state:undefined},"code=SECRET_CODE&state=SECRET_STATE","OAUTH_STATE_MISMATCH"],
+    [valid,"code=SECRET_CODE","OAUTH_STATE_MISMATCH"],
+    [{...valid,createdAt:now-600001},"code=SECRET_CODE&state=SECRET_STATE","OAUTH_TRANSACTION_EXPIRED"],
+    [{...valid,createdAt:now+600000},"code=SECRET_CODE&state=SECRET_STATE","OAUTH_TRANSACTION_EXPIRED"],
+    [{...valid,createdAt:null},"code=SECRET_CODE&state=SECRET_STATE","OAUTH_TRANSACTION_EXPIRED"],
+    [valid,"state=SECRET_STATE","OAUTH_CALLBACK_INCOMPLETE"],
+  ]) {
+    let calls=0;const c=authFixture({},async()=>{calls++;return response(200);});
+    c.location.href="https://test.example/game/?"+query;
+    if(pkce)c.sessionStorage.setItem("bamboc.spotify.pkce",JSON.stringify(pkce));
+    await assert.rejects(c.Bamboc.auth.handleRedirect(),e=>e.message==="Login non valido o scaduto. Avvia nuovamente l'accesso."&&e.diagnosticCode===type);
+    assert.equal(calls,0);assert.ok(oauthEvents(c).some(e=>e.event==="error"&&e.type===type));
+    assert.ok(oauthEvents(c).some(e=>["state_found","state_missing"].includes(e.event)));
+    assert.ok(oauthEvents(c).some(e=>["verifier_found","verifier_missing"].includes(e.event)));
+    assert.equal(c.Bamboc.oauthDiagnostics.snapshot().failed,true);
+    for(const secret of ["SECRET_VERIFIER","SECRET_STATE","SECRET_CODE"])
+      assert.equal(JSON.stringify(c.Bamboc.oauthDiagnostics.snapshot()).includes(secret),false);
+  }
+});
+test("OAuth mobile: corrupt and inaccessible PKCE storage distinguish read failure from absent record", async()=>{
+  for(const blocked of [false,true]) {
+    const c=authFixture({},async()=>{throw Error("unexpected network");});
+    c.location.href="https://test.example/game/?code=c&state=s";
+    c.sessionStorage.setItem("bamboc.spotify.pkce","invalid JSON");
+    if(blocked) {const get=c.sessionStorage.getItem;c.sessionStorage.getItem=k=>{if(k==="bamboc.spotify.pkce")throw Error("blocked");return get(k);};}
+    await assert.rejects(c.Bamboc.auth.handleRedirect());
+    assert.ok(oauthEvents(c).some(e=>e.event==="pkce_read"&&e.ok===false));
+  }
+});
+test("OAuth mobile: same storage across document reload links attempt, distinct boots and safe success journal", async()=>{
+  const a=authFixture({},async()=>{});await a.Bamboc.auth.login();
+  const pkce=JSON.parse(a.sessionStorage.getItem("bamboc.spotify.pkce"));
+  const b=environment({sessionStorage:a.sessionStorage,fetch:async()=>response(200,{access_token:"SECRET_ACCESS",refresh_token:"SECRET_REFRESH",expires_in:3600})});
+  load(b,"spotify-auth.js");b.location.href="https://test.example/game/?code=SECRET_CODE&state="+pkce.state;
+  await b.Bamboc.auth.handleRedirect();await b.Bamboc.auth.getToken();
+  const d=b.Bamboc.oauthDiagnostics.snapshot();
+  assert.equal(d.attemptId,pkce.diagnosticAttemptId);assert.equal(d.recovered,true);
+  assert.notEqual(d.bootId,a.Bamboc.oauthDiagnostics.snapshot().bootId);
+  for(const event of ["login_start","pkce_created","redirect_start","callback_detected","state_valid","verifier_found","token_exchange_start","token_exchange_success","token_saved","token_valid"])
+    assert.ok(d.events.some(e=>e.event===event),event);
+  for(const secret of [pkce.state,pkce.verifier,"SECRET_CODE","SECRET_ACCESS","SECRET_REFRESH"])
+    assert.equal(b.sessionStorage.getItem("bamboc.oauth.diagnostic.v1").includes(secret),false);
+});
+test("OAuth mobile: separate empty tab storage cannot recover attempt or verifier; retry can succeed", async()=>{
+  const a=authFixture({},async()=>{});await a.Bamboc.auth.login();
+  const first=JSON.parse(a.sessionStorage.getItem("bamboc.spotify.pkce"));
+  const b=authFixture({},async()=>response(200,{access_token:"a",refresh_token:"r",expires_in:3600}));
+  b.location.href="https://test.example/game/?code=c&state="+first.state;
+  await assert.rejects(b.Bamboc.auth.handleRedirect(),e=>e.diagnosticCode==="PKCE_VERIFIER_MISSING");
+  assert.equal(b.Bamboc.oauthDiagnostics.snapshot().attemptId,null);
+  assert.equal(b.Bamboc.oauthDiagnostics.snapshot().recovered,false);
+  await b.Bamboc.auth.login();const second=JSON.parse(b.sessionStorage.getItem("bamboc.spotify.pkce"));
+  b.location.href="https://test.example/game/?code=second&state="+second.state;
+  await b.Bamboc.auth.handleRedirect();assert.equal(b.Bamboc.auth.hasValidToken(),true);
+  assert.notEqual(second.diagnosticAttemptId,first.diagnosticAttemptId);
+  assert.ok(oauthEvents(b).some(e=>e.type==="PKCE_VERIFIER_MISSING"));
+});
+test("OAuth mobile: failure panel survives auth reset and reload without debug opt-in", async()=>{
+  const f=sessionFixture({callback:"https://test.example/game/?code=c&state=s"});await flush();
+  assert.equal(f.element("oauth-diagnostic").hidden,false);
+  assert.match(f.element("oauth-diagnostic-data").textContent,/PKCE_VERIFIER_MISSING/);
+  f.c.Bamboc.auth.clear();assert.equal(f.element("oauth-diagnostic").hidden,false);
+  const next=environment({sessionStorage:f.c.sessionStorage,document:f.c.document});
+  next.Bamboc.oauthDiagnostics.mount();
+  assert.equal(f.element("oauth-diagnostic").hidden,false);
+  assert.match(f.element("oauth-diagnostic-data").textContent,/PKCE_VERIFIER_MISSING/);
+  assert.equal(f.player.instances.length,0);
+});
+test("OAuth mobile: real UI serializes boot callback, ignores double login tap and waits before SDK", async()=>{
+  const gate=defer();let requests=0;
+  const f=sessionFixture({tokens:expired,callback:"https://test.example/game/?code=c&state=s",
+    pkce:{verifier:"v",state:"s",createdAt:Date.now()},fetcher:async()=>{requests++;return gate.promise;}});
+  await f.click("login-btn");await f.click("login-btn");await flush();
+  assert.equal(requests,1);assert.equal(f.player.instances.length,0);
+  assert.equal(oauthEvents(f.c).filter(e=>e.event==="callback_enter").length,1);
+  gate.resolve(response(200,{access_token:"a",refresh_token:"r",expires_in:3600}));await flush();
+  assert.ok(oauthEvents(f.c).findIndex(e=>e.event==="player_initialization")>oauthEvents(f.c).findIndex(e=>e.event==="token_exchange_success"));
+  assert.equal(f.element("scan-btn").disabled,false);f.pagehide();
+});
+test("OAuth mobile: first-login double tap creates just one PKCE transaction", async()=>{
+  const f=sessionFixture({tokens:{}});await flush();
+  const first=f.click("login-btn"),second=f.click("login-btn");
+  await Promise.all([first,second]);
+  assert.equal(oauthEvents(f.c).filter(e=>e.event==="login_start").length,1);
+  assert.equal(oauthEvents(f.c).filter(e=>e.event==="pkce_created").length,1);
+  assert.ok(f.c.sessionStorage.getItem("bamboc.spotify.pkce"));f.pagehide();
+});
+test("OAuth mobile: reload during exchange loses callback but produces no generic invalid-login message", async()=>{
+  const gate=defer(),a=authFixture({},async()=>gate.promise);
+  a.location.href="https://test.example/game/?code=c&state=s";
+  a.sessionStorage.setItem("bamboc.spotify.pkce",JSON.stringify({verifier:"v",state:"s",createdAt:Date.now()}));
+  a.history.replaceState=(_a,_b,url)=>{a.location.href=new URL(url,a.location.href).href;};
+  const pending=a.Bamboc.auth.handleRedirect();
+  const b=environment({sessionStorage:a.sessionStorage,localStorage:a.localStorage,location:{...a.location}});
+  load(b,"spotify-auth.js");await b.Bamboc.auth.handleRedirect();
+  await assert.rejects(b.Bamboc.auth.getToken(),e=>e.message==="Accedi a Spotify per iniziare.");
+  assert.ok(oauthEvents(b).some(e=>e.event==="callback_absent"));
+  gate.resolve(response(200,{access_token:"a",refresh_token:"r",expires_in:3600}));await pending;
+});
+test("OAuth mobile: direct duplicate callback is observable while first exchange is pending", async()=>{
+  const gate=defer();const c=authFixture({},async()=>gate.promise);
+  c.location.href="https://test.example/game/?code=c&state=s";
+  c.history.replaceState=(_a,_b,url)=>{c.location.href=new URL(url,c.location.href).href;};
+  c.sessionStorage.setItem("bamboc.spotify.pkce",JSON.stringify({verifier:"v",state:"s",createdAt:Date.now()}));
+  const first=c.Bamboc.auth.handleRedirect();
+  await c.Bamboc.auth.handleRedirect();
+  assert.ok(oauthEvents(c).some(e=>e.event==="callback_overlap"));
+  assert.ok(oauthEvents(c).some(e=>e.event==="callback_already_consumed"));
+  // Documents a latent API race, NOT the normal serialized UI path.
+  await assert.rejects(c.Bamboc.auth.getToken());
+  gate.resolve(response(200,{access_token:"a",refresh_token:"r",expires_in:3600}));
+  await assert.rejects(first,/annullata/);
+  assert.equal(c.Bamboc.auth.hasValidToken(),false);
+});
+test("OAuth mobile: HTTP and network exchange failures retain status and never raw error payload", async()=>{
+  for(const status of [400,503,null]) {
+    const c=authFixture({},async()=>{if(status)return response(status);throw Error("SECRET_NETWORK");});
+    c.location.href="https://test.example/game/?code=c&state=s";
+    c.sessionStorage.setItem("bamboc.spotify.pkce",JSON.stringify({verifier:"v",state:"s",createdAt:Date.now()}));
+    await assert.rejects(c.Bamboc.auth.handleRedirect());
+    const event=oauthEvents(c).find(e=>e.event==="token_exchange_failure");
+    assert.equal(event.status,status??undefined);
+    assert.equal(JSON.stringify(oauthEvents(c)).includes("SECRET_NETWORK"),false);
+  }
+});
+test("OAuth mobile: refresh success and failure are visible and concurrent refresh remains deduplicated", async()=>{
+  for(const status of [200,400]) {
+    let requests=0;const c=authFixture(expired,async()=>{requests++;return response(status,{access_token:"a",expires_in:3600});});
+    await Promise.allSettled([c.Bamboc.auth.getToken(),c.Bamboc.auth.getToken()]);
+    assert.equal(requests,1);assert.ok(oauthEvents(c).some(e=>e.event==="refresh_start"));
+    assert.ok(oauthEvents(c).some(e=>e.event===(status===200?"refresh_success":"refresh_failure")&&e.status===status));
+  }
+});
+test("OAuth mobile: lifecycle journal records persisted navigation without clearing PKCE", async()=>{
+  const listeners={};const c=environment({addEventListener:(name,fn)=>{listeners[name]=fn;},
+    document:{title:"Test",hidden:false,addEventListener:(name,fn)=>{listeners[name]=fn;}}});
+  load(c,"spotify-auth.js");await c.Bamboc.auth.login();
+  const before=c.sessionStorage.getItem("bamboc.spotify.pkce");
+  listeners.pagehide({persisted:true});listeners.pageshow({persisted:true});
+  c.document.hidden=true;listeners.visibilitychange();
+  assert.equal(c.sessionStorage.getItem("bamboc.spotify.pkce"),before);
+  for(const event of ["pagehide","pageshow","visibility"])assert.ok(oauthEvents(c).some(e=>e.event===event));
+});
+test("OAuth mobile: diagnostic storage failure never interrupts login or hides in-memory failure", async()=>{
+  const c=authFixture({},async()=>{}),set=c.sessionStorage.setItem;
+  c.sessionStorage.setItem=(key,value)=>{if(key==="bamboc.oauth.diagnostic.v1")throw Error("blocked");set(key,value);};
+  await c.Bamboc.auth.login();assert.ok(c.location.assigned);
+  c.location.href="https://test.example/game/?code=c&state=wrong";
+  await assert.rejects(c.Bamboc.auth.handleRedirect());
+  const d=c.Bamboc.oauthDiagnostics.snapshot();assert.equal(d.storageWritable,false);assert.equal(d.failed,true);
 });
 
 let failures=0;

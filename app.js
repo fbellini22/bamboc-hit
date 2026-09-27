@@ -12,6 +12,7 @@
   let song = null, startedAt = 0, frame = null, deadlineTimer = null;
   let countdownVisible = false, lastCountdownNumber = null;
   window.Bamboc.browserDiagnostics?.mount();
+  window.Bamboc.oauthDiagnostics?.mount();
   let cameraStopped = Promise.resolve(), revealAfterStop = false;
   let spotifyState = "AUTH_REQUIRED", sessionId = 0, connecting = null;
   let roundId = 0, controller = null, leaving = false;
@@ -83,6 +84,7 @@
         await auth.getToken();
         if (epoch !== sessionId || leaving) return;
         spotifyState = "PLAYER_CONNECTING"; render(); message("Connessione a Spotify…");
+        window.Bamboc.oauthDiagnostics?.event("player_initialization");
         await playback.prepare();
         if (epoch !== sessionId || leaving) return;
         cameraStopped = scanner.stop();
@@ -331,6 +333,7 @@
   });
   window.addEventListener("pageshow", event => { if (event.persisted) window.location.reload(); });
   async function boot() {
+    window.Bamboc.oauthDiagnostics?.boot();
     render();
     if (catalog.issues.length) {
       console.warn("Bamboc-Hit: " + catalog.issues.length + " segnalazioni dataset. Vedi DATASET_AUDIT.md.");

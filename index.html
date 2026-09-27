@@ -11,6 +11,7 @@
     <script defer src="config.js"></script>
     <script defer src="core.js"></script>
     <script defer src="browser-diagnostics.js"></script>
+    <script defer src="oauth-diagnostics.js"></script>
     <script defer src="spotify-auth.js"></script>
     <script defer src="player.js"></script>
     <script defer src="scanner.js"></script>
@@ -48,6 +49,11 @@
       <button id="connect-btn" class="secondary-btn" type="button" hidden>Riconnetti Spotify</button>
       <button id="logout-btn" class="secondary-btn" type="button" hidden>Esci da Spotify</button>
       <p id="status" role="status" aria-live="polite"></p>
+      <section id="oauth-diagnostic" hidden>
+        <h2>Diagnostica OAuth temporanea</h2>
+        <p>Fotografa questo pannello prima di riprovare il login. Se necessario, scorri per includere tutti gli eventi.</p>
+        <pre id="oauth-diagnostic-data" style="white-space: pre-wrap; overflow-wrap: anywhere; text-align: left; font-size: 12px"></pre>
+      </section>
       <section id="playback-diagnostic" hidden aria-live="polite">
         <h2>Diagnostica playback temporanea</h2>
         <p>In caso di errore, condividi questi dettagli del round.</p>
