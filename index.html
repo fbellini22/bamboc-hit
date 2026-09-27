@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#3a1c71" />
+    <meta name="theme-color" content="#100d20" />
     <title>Bamboc-Hit</title>
     <link href="https://fonts.googleapis.com/css2?family=Monoton&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="style.css" />
@@ -18,36 +18,63 @@
   </head>
   <body>
     <main>
+      <header class="topbar">
+        <span class="brand-mark" aria-label="Bamboc-Hit">BH<span aria-hidden="true">✳</span></span>
+        <span class="edition">IL TUO MUSIC PARTY</span>
+        <button id="logout-btn" class="quiet-btn" type="button" hidden>Esci da Spotify</button>
+      </header>
       <section id="login-screen" class="screen">
-        <h1 class="title">Bamboc-Hit</h1>
-        <button id="login-btn" class="primary-btn" type="button">Login con Spotify</button>
+        <p class="eyebrow">BUONA MUSICA. OTTIMA COMPAGNIA.</p>
+        <h1 class="title">BAMBOC<span>-HIT</span></h1>
+        <div class="record-art" aria-hidden="true"><span class="record-label">B<span>HIT PLAY<br />MAKE SOME NOISE</span></span><span class="record-spark">✳</span></div>
+        <h2 class="login-question">Quanto conosci<br />davvero la musica?</h2>
+        <p class="supporting">Una carta. Una canzone. Chi la indovina?</p>
+        <button id="login-btn" class="primary-btn" type="button">ACCEDI CON SPOTIFY</button>
+        <p class="login-note">Serve Spotify Premium. Al resto pensate voi.</p>
       </section>
       <section id="game-screen" class="screen" hidden>
-        <h1 class="title">Bamboc-Hit</h1>
-        <button id="scan-btn" class="primary-btn" type="button" disabled>SCAN</button>
+        <h1 class="title game-title">BAMBOC-HIT</h1>
+        <div class="ready-intro">
+          <p class="connection"><span aria-hidden="true"></span> Spotify connesso</p>
+          <h2>Pronto<br />a giocare<span class="accent">?</span></h2>
+          <p class="supporting">Metti alla prova il tuo orecchio.</p>
+        </div>
+        <button id="scan-btn" class="primary-btn scan-action" type="button" disabled>SCANSIONA LA CARTA</button>
         <div id="scanner-container" class="scanner-container" hidden>
-          <div id="reader" aria-label="Scanner QR della fotocamera"></div>
+          <p class="eyebrow">LA PROSSIMA HIT È QUI</p>
+          <div class="camera-frame">
+            <div id="reader" aria-label="Scanner QR della fotocamera"></div>
+            <div class="scan-corners" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+          </div>
+          <p class="supporting">Inquadra il QR della carta</p>
         </div>
         <button id="cancel-btn" class="secondary-btn" type="button" hidden>Annulla scansione</button>
         <div id="preplay" class="preplay" role="status" aria-live="polite" aria-atomic="true" hidden>
           <span id="preplay-count" class="preplay-count">3</span>
         </div>
         <div id="go-label" class="go-label" hidden></div>
+        <div class="playing-intro">
+          <p class="eyebrow">ORA TOCCA A VOI</p>
+          <h2>INDOVINA<span class="accent">!</span></h2>
+          <div class="equalizer" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+        </div>
         <div id="timer" class="timer" role="timer" aria-label="45 secondi rimanenti" hidden>
-          <svg class="progress-ring" width="180" height="180" aria-hidden="true">
+          <svg class="progress-ring" width="180" height="180" viewBox="0 0 180 180" aria-hidden="true">
             <circle class="progress-ring-bg" cx="90" cy="90" r="80" />
             <circle id="progress-ring-circle" class="progress-ring-circle" cx="90" cy="90" r="80" />
           </svg>
           <div id="countdown" class="timer-text">45</div>
+          <span class="timer-caption" aria-hidden="true">SECONDI</span>
         </div>
-        <button id="reveal-btn" class="primary-btn" type="button" hidden disabled>REVEAL</button>
+        <button id="reveal-btn" class="primary-btn" type="button" hidden disabled>RIVELA</button>
+        <p class="reveal-heading eyebrow">ECCO LA HIT</p>
         <div id="result" class="card-container" aria-live="polite" hidden></div>
-        <button id="reset-btn" class="primary-btn" type="button" hidden>NEXT SONG</button>
+        <button id="reset-btn" class="primary-btn" type="button" hidden>PROSSIMA CARTA</button>
       </section>
       <button id="connect-btn" class="secondary-btn" type="button" hidden>Riconnetti Spotify</button>
-      <button id="logout-btn" class="secondary-btn" type="button" hidden>Esci da Spotify</button>
       <p id="status" role="status" aria-live="polite"></p>
       <noscript>Per giocare devi abilitare JavaScript.</noscript>
+      <footer class="game-footer"><span aria-hidden="true">●</span> ALZA IL VOLUME. ACCENDI LA SFIDA.</footer>
     </main>
   </body>
 </html>

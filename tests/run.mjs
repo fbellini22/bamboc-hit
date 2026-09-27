@@ -499,12 +499,12 @@ test("failed stop leaves retry action and blocks NEXT until confirmed", async ()
   f.click("reveal-btn");await delay(0);
   assert.equal(f.element("reset-btn").textContent,"RIPROVA STOP");
   f.setPause(Promise.resolve());f.click("reset-btn");await delay(0);
-  assert.equal(f.element("reset-btn").textContent,"NEXT SONG");
+  assert.equal(f.element("reset-btn").textContent,"PROSSIMA CARTA");
 });
 test("expired confirmed timestamp automatically reveals without waiting 45 callback ticks", async () => {
   const f=appFixture();await delay(0);f.click("scan-btn");await delay(0);
   f.setPlay(Promise.resolve(Date.now()-46000));await f.scan("spotify:track:"+id);await delay(0);
-  assert.equal(f.element("reset-btn").textContent,"NEXT SONG");
+  assert.equal(f.element("reset-btn").textContent,"PROSSIMA CARTA");
   assert.equal(f.element("result").hidden,false);
 });
 
@@ -1520,6 +1520,34 @@ test("release: production logging retains safe error codes/status only and drops
     access_token:"SECRET_TOKEN",refresh_token:"SECRET_REFRESH",code:"SECRET_CODE",verifier:"SECRET_VERIFIER",message:"SECRET_MESSAGE"});
   assert.equal(logs.length,1);assert.equal(logs[0][1].status,400);
   assert.equal(JSON.stringify(logs).includes("SECRET"),false);
+});
+
+test("visual redesign preserves unique functional DOM hooks and script order", async()=>{
+  const html=await readFile(new URL("index.html",root),"utf8");
+  const ids=[...html.matchAll(/\bid="([^"]+)"/g)].map(m=>m[1]);
+  assert.equal(ids.length,new Set(ids).size);
+  for(const hook of ["login-screen","login-btn","game-screen","scan-btn","scanner-container","reader",
+    "cancel-btn","preplay","preplay-count","go-label","timer","progress-ring-circle","countdown",
+    "reveal-btn","result","reset-btn","connect-btn","logout-btn","status"])
+    assert.ok(ids.includes(hook),hook);
+  assert.deepEqual([...html.matchAll(/<script defer src="([^"]+)"/g)].map(m=>m[1]),[
+    "https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js","config.js","core.js","spotify-auth.js",
+    "player.js","scanner.js","song.js","app.js"]);
+  assert.match(html,/id="result"[^>]*aria-live="polite"[^>]*hidden/);
+  assert.match(html,/id="go-label"[^>]*hidden><\/div>/);
+  assert.doesNotMatch(html,/>\s*(?:Preparazione(?:\.{3}|…)?|VIA)\s*</);
+});
+test("visual redesign keeps hidden authoritative, reduced motion, safe areas and unchanged ring geometry", async()=>{
+  const css=await readFile(new URL("style.css",root),"utf8");
+  const html=await readFile(new URL("index.html",root),"utf8");
+  assert.match(css,/\[hidden\]\s*\{\s*display:\s*none\s*!important/);
+  assert.match(css,/prefers-reduced-motion:\s*reduce/);
+  assert.match(css,/animation:\s*none\s*!important/);
+  assert.match(css,/min-height:\s*100dvh/);
+  for(const side of ["top","bottom","left","right"])assert.ok(css.includes("safe-area-inset-"+side));
+  assert.match(css,/pointer-events:\s*none/);
+  assert.match(html,/id="progress-ring-circle"[^>]*cx="90" cy="90" r="80"/);
+  assert.match(css,/stroke-dasharray:\s*502\.6548245743669/);
 });
 
 let failures=0;

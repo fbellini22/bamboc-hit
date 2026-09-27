@@ -24,7 +24,7 @@
     el("connect-btn").disabled = Boolean(connecting) || !["idle", "revealed"].includes(phase);
     el("logout-btn").hidden = spotifyState === "AUTH_REQUIRED";
     el("status").setAttribute("data-spotify-state", spotifyState);
-    el("scan-btn").textContent = phase === "opening" ? "APERTURA…" : "SCAN";
+    el("scan-btn").textContent = phase === "opening" ? "APERTURA…" : "SCANSIONA LA CARTA";
     el("scanner-container").hidden = phase !== "scanning";
     el("cancel-btn").hidden = !["opening", "scanning", "preparing"].includes(phase);
     el("cancel-btn").textContent = phase === "preparing" ? "Annulla round" : "Annulla scansione";
@@ -36,7 +36,7 @@
     el("reset-btn").hidden = !["revealed", "stopping", "stop-error"].includes(phase);
     el("reset-btn").disabled = phase === "stopping" || (phase === "revealed" && !canScan());
     el("reset-btn").textContent = phase === "stop-error" ? "RIPROVA STOP"
-      : phase === "stopping" ? "ARRESTO…" : "NEXT SONG";
+      : phase === "stopping" ? "ARRESTO…" : "PROSSIMA CARTA";
     el("result").hidden = !revealAfterStop;
     el("game-screen").setAttribute("aria-busy", String(["opening", "preparing", "stopping"].includes(phase)));
   }
