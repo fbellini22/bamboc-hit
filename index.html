@@ -10,6 +10,7 @@
     <script defer src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     <script defer src="config.js"></script>
     <script defer src="core.js"></script>
+    <script defer src="browser-diagnostics.js"></script>
     <script defer src="spotify-auth.js"></script>
     <script defer src="player.js"></script>
     <script defer src="scanner.js"></script>
@@ -53,6 +54,12 @@
         <pre id="playback-diagnostic-data"></pre>
       </section>
       <noscript>Per giocare devi abilitare JavaScript.</noscript>
+      <details id="browser-diagnostic">
+        <summary>Diagnostica browser temporanea</summary>
+        <p>Per confrontare mobile e sito desktop. Il controllo DRM non avvia audio e non garantisce la riproduzione Spotify.</p>
+        <button id="browser-diagnostic-probe" type="button" class="secondary-btn">Verifica DRM e permesso camera</button>
+        <pre id="browser-diagnostic-data"></pre>
+      </details>
     </main>
   </body>
 </html>

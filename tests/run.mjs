@@ -8,7 +8,7 @@ const coreModule = { exports: {} };
 vm.runInNewContext(await readFile(new URL("core.js", root), "utf8"), { module: coreModule, URL, setTimeout, clearTimeout });
 const core = coreModule.exports;
 const sources = Object.fromEntries(await Promise.all(
-  ["config.js", "spotify-auth.js", "player.js", "scanner.js", "app.js", "song.js"]
+  ["config.js", "browser-diagnostics.js", "spotify-auth.js", "player.js", "scanner.js", "app.js", "song.js"]
     .map(async name => [name, await readFile(new URL(name, root), "utf8")])
 ));
 const tests = [];
@@ -39,6 +39,7 @@ function environment(extra = {}) {
   context.Bamboc.config = { ...context.Bamboc.config, readyTimeoutMs: 80, playbackTimeoutMs: 80,
     requestTimeoutMs: 80, pollMs: 5 };
   context.Bamboc.core = core;
+  vm.runInContext(sources["browser-diagnostics.js"], context);
   return context;
 }
 function load(context, file) { vm.runInContext(sources[file], context, {filename:file}); }
@@ -427,7 +428,7 @@ function appFixture({clock, preplayMs=0, songs=[song], context, realSession=fals
   const extras={
     document:{title:"Test",getElementById:element,createElement:()=>element("created"+elements.size),
       addEventListener:(name,fn)=>{docListeners[name]=fn;}},
-    navigator:{},addEventListener:(name,fn)=>{windowListeners[name]=fn;},
+    navigator:context?.navigator || {},addEventListener:(name,fn)=>{windowListeners[name]=fn;},
     requestAnimationFrame:()=>1,cancelAnimationFrame(){},SONGS:songs,
     ...(clock ? {Date:clock.Date,setTimeout:clock.schedule,clearTimeout:clock.unschedule} : {}),
   };
@@ -647,10 +648,11 @@ test("fast preparation waits 3-2-1; reveal and timer stay disabled", async () =>
   assert.equal(f.element("go-label").hidden,true);f.click("reveal-btn");await flush();
   assert.equal(clock.pending,0);
 });
-test("slow preparation holds 1 until playback confirmed without intermediate text", async () => {
+test("slow preparation hides countdown after 1 until playback confirmed", async () => {
   const clock=fakeClock(), gate=defer(), f=appFixture({clock,preplayMs:3000});await flush();
   f.setPlay(gate.promise);f.click("scan-btn");await flush();const pending=f.scan("spotify:track:"+id);
   await clock.advance(3000);assert.equal(f.element("preplay-count").textContent,"1");
+  assert.equal(f.element("preplay").hidden,true);
   assert.equal(f.element("go-label").hidden,true);assert.equal(f.element("timer").hidden,true);
   gate.resolve(null);await pending;assert.equal(f.element("countdown").textContent,"45");
   f.click("reveal-btn");await flush();assert.equal(clock.pending,0);
@@ -1110,8 +1112,8 @@ test("visible countdown contains only 3,2,1 while delayed setup remains pending"
   const clock=fakeClock(),gate=defer(),f=appFixture({clock,preplayMs:3000});await flush();
   f.setPlay(gate.promise);f.click("scan-btn");await flush();const pending=f.scan("spotify:track:"+id);await flush();
   const visible=[];
-  for(let i=0;i<5;i++){visible.push(f.element("preplay-count").textContent);await clock.advance(1000);}
-  assert.deepEqual(visible,["3","2","1","1","1"]);assert.equal(f.element("go-label").hidden,true);
+  for(let i=0;i<5;i++){if(!f.element("preplay").hidden)visible.push(f.element("preplay-count").textContent);await clock.advance(1000);}
+  assert.deepEqual(visible,["3","2","1"]);assert.equal(f.element("go-label").hidden,true);
   assert.equal(f.element("timer").hidden,true);gate.resolve(null);await pending;
   assert.equal(f.element("go-label").hidden,true);assert.equal(f.element("preplay").hidden,true);
   f.click("reveal-btn");await flush();
@@ -1195,6 +1197,92 @@ test("SDK failure while confirming publishes confirmation_failed in the phone pa
   const events=reports.at(-1).timeline.map(x=>x.event);
   assert.ok(events.includes("confirmation_started"));assert.ok(events.includes("confirmation_failed"));
   assert.equal(events.includes("confirmation_success"),false);
+});
+
+test("countdown writes each digit once, hides while HTTP is pending, timer waits for confirmed playback", async()=>{
+  const gate=defer(),clock=fakeClock(),player=playerFixture({realAuth:true,tokens:savedSession(),apiGate:gate.promise});
+  const f=appFixture({clock,context:player.c,realSession:true,preplayMs:3000});await flush();
+  const writes=[];let value="";
+  Object.defineProperty(f.element("preplay-count"),"textContent",{get:()=>value,set:text=>{value=text;writes.push(text);}});
+  f.click("scan-btn");await flush();const pending=f.scan("spotify:track:"+id);await flush();
+  for(const digit of ["3","2","1"]){assert.equal(value,digit);assert.equal(f.element("preplay").hidden,false);
+    assert.equal(player.requests.length,0);assert.equal(f.element("timer").hidden,true);await clock.advance(1000);}
+  assert.deepEqual(writes,["3","2","1"]);assert.equal(f.element("preplay").hidden,true);
+  assert.equal(player.requests.length,1);assert.ok(player.requests[0].body.position_ms>=1000);
+  const position=player.requests[0].body.position_ms;
+  await clock.advance(1000);assert.deepEqual(writes,["3","2","1"]);
+  assert.equal(f.element("preplay").hidden,true);assert.equal(f.element("timer").hidden,true);
+  assert.equal(f.element("countdown").textContent,"");assert.equal(f.element("reveal-btn").disabled,true);
+  gate.resolve();await pending;assert.equal(f.element("timer").hidden,false);assert.equal(f.element("countdown").textContent,"45");
+  assert.deepEqual(writes,["3","2","1"]);assert.equal(player.requests[0].body.position_ms,position);
+  assert.equal(f.element("preplay").hidden,true);f.click("reveal-btn");await flush();f.click("reset-btn");await flush();
+  const next=f.scan("spotify:track:"+id);await flush();assert.equal(value,"3");
+  f.click("cancel-btn");await next;await flush();
+});
+test("countdown ignores duplicate positive ticks and never renders zero as one", async()=>{
+  const gate=defer(),f=appFixture({clock:fakeClock()});await flush();f.setPlay(gate.promise);
+  f.c.Bamboc.core.preplayCountdown=(_ms,tick)=>{for(const n of [3,3,2,2,1,1,0])tick(n);return Promise.resolve();};
+  const values=[];Object.defineProperty(f.element("preplay-count"),"textContent",{set:value=>values.push(value)});
+  f.click("scan-btn");await flush();const pending=f.scan("spotify:track:"+id);await flush();
+  assert.deepEqual(values,["3","2","1"]);assert.equal(f.element("preplay").hidden,true);
+  gate.resolve();await pending;f.click("reveal-btn");await flush();
+});
+test("browser diagnostics compare actual feature probes with mobile/desktop hints without playback gating", async()=>{
+  const android="Mozilla/5.0 (Linux; Android 14) Chrome/130.0.0.0 Mobile Safari/537.36";
+  for(const [ua,mobile,mode,result] of [[android,true,"ok","available_for_probe_config"],
+    [android,true,"reject","probe_rejected"],[android,true,"absent","EME_API_missing"],
+    ["Mozilla/5.0 (X11; Linux x86_64) Chrome/130.0.0.0 Safari/537.36",false,"ok","available_for_probe_config"]]){
+    let probes=0;const f=playerFixture();f.c.navigator={userAgent:ua,userAgentData:{mobile,platform:mobile?"Android":"Linux"}};
+    f.c.isSecureContext=true;
+    if(mode!=="absent")f.c.navigator.requestMediaKeySystemAccess=async(key,configs)=>{
+      probes++;assert.equal(key,"com.widevine.alpha");assert.equal(configs[0].sessionTypes[0],"temporary");
+      if(mode==="reject"){const e=new Error("PRIVATE_DETAILS");e.name="NotSupportedError";throw e;}return {};
+    };
+    await f.api.prepare();assert.equal(probes,0);await f.c.Bamboc.browserDiagnostics.probe();
+    const report=f.c.Bamboc.browserDiagnostics.snapshot();assert.equal(report.environment.mobile,mobile);
+    assert.equal(report.environment.emeAvailable,mode!=="absent");assert.equal(report.keySystem.result,result);
+    assert.equal(probes,mode==="absent"?0:1);assert.equal(f.requests.length,0);assert.equal(f.api.isReady(),true);
+    f.api.disconnect();
+  }
+});
+test("browser diagnostics expose connect failure before READY without needing a round", async()=>{
+  const f=sessionFixture({connectFalse:true});await flush();
+  const d=JSON.parse(f.element("browser-diagnostic-data").textContent);
+  assert.equal(d.connectResult,false);assert.ok(d.events.some(e=>e.type==="PLAYER_CONNECT_FAILED"));
+  assert.equal(f.element("scan-btn").disabled,true);assert.equal(f.player.requests.length,0);
+});
+test("activateElement remains synchronous in SCAN gesture; diagnostics preserve activation results", async()=>{
+  const gate=defer(),f=sessionFixture();await flush();
+  f.c.navigator.userActivation={isActive:true,hasBeenActive:true};let called=false;
+  f.player.instance.activateElement=()=>{called=true;assert.equal(f.c.navigator.userActivation.isActive,true);return gate.promise;};
+  f.click("scan-btn");assert.equal(called,true);assert.equal(f.calls.includes("scan"),false);
+  f.c.navigator.userActivation.isActive=false;gate.resolve();await flush();
+  const d=f.c.Bamboc.browserDiagnostics.snapshot();assert.equal(d.activateElement,"success");
+  assert.equal(d.events.find(e=>e.event==="activate_called").environment.userActivationActive,true);
+  assert.ok(d.events.some(e=>e.event==="camera_started"));f.pagehide();
+});
+test("browser diagnostics record activation rejection and SDK errors without raw messages or device IDs", async()=>{
+  const f=playerFixture();await f.api.prepare();
+  f.c.navigator={userAgent:"Chrome/130.0 SECRET_UA",userAgentData:{mobile:true,platform:"SECRET_PLATFORM"}};
+  f.instance.activateElement=()=>Promise.reject(new Error("SECRET_TOKEN"));await assert.rejects(f.api.activate());
+  for(const event of ["authentication_error","account_error","initialization_error","playback_error","autoplay_failed"])
+    f.instance.emit(event,{message:"SECRET_MESSAGE"});
+  const d=f.c.Bamboc.browserDiagnostics.snapshot();assert.equal(d.activateElement,"failed");
+  for(const type of ["SDK_AUTHENTICATION_ERROR","SDK_ACCOUNT_ERROR","SDK_INITIALIZATION_ERROR","SDK_PLAYBACK_ERROR","SDK_AUTOPLAY_FAILED"])
+    assert.ok(d.events.some(e=>e.type===type));
+  const text=JSON.stringify(d);assert.equal(text.includes("SECRET"),false);assert.equal(text.includes(f.instance.device),false);f.api.disconnect();
+});
+test("browser diagnostics preserve HTTP errors, visibility and camera feature/permission differences", async()=>{
+  const f=sessionFixture({fetcher:async()=>response(403)});await flush();
+  f.c.navigator.permissions={query:async()=>({state:"denied"})};
+  f.c.document.visibilityState="visible";f.c.document.hasFocus=()=>true;
+  f.c.document.permissionsPolicy={allowsFeature:feature=>feature!=="camera"};
+  await f.c.Bamboc.browserDiagnostics.probe();
+  f.click("scan-btn");await flush();await f.scan("spotify:track:"+id);
+  const d=f.c.Bamboc.browserDiagnostics.snapshot();assert.equal(d.cameraPermission,"denied");
+  assert.equal(d.environment.policy.camera,false);assert.equal(d.environment.visibility,"visible");
+  assert.ok(d.events.some(e=>e.event==="play_http_response"&&e.status===403));
+  assert.equal(d.transfer,"not_used_direct_device");
 });
 
 let failures=0;

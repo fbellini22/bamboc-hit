@@ -10,6 +10,8 @@
     el("playback-diagnostic").hidden = false;
   });
   let song = null, startedAt = 0, frame = null, deadlineTimer = null;
+  let countdownVisible = false, lastCountdownNumber = null;
+  window.Bamboc.browserDiagnostics?.mount();
   let cameraStopped = Promise.resolve(), revealAfterStop = false;
   let spotifyState = "AUTH_REQUIRED", sessionId = 0, connecting = null;
   let roundId = 0, controller = null, leaving = false;
@@ -32,7 +34,7 @@
     el("scanner-container").hidden = phase !== "scanning";
     el("cancel-btn").hidden = !["opening", "scanning", "preparing"].includes(phase);
     el("cancel-btn").textContent = phase === "preparing" ? "Annulla round" : "Annulla scansione";
-    el("preplay").hidden = phase !== "preparing";
+    el("preplay").hidden = phase !== "preparing" || !countdownVisible;
     el("timer").hidden = phase !== "playing";
     el("reveal-btn").hidden = phase !== "playing";
     el("reveal-btn").disabled = phase !== "playing";
@@ -46,6 +48,7 @@
   }
   function move(phase) { round.move(phase); render(); }
   function report(error) {
+    window.Bamboc.browserDiagnostics?.event("app_error", { type: error.diagnosticCode || core.errorCode(error), status: error.status });
     if (error instanceof auth.LoginRequired || core.errorCode(error) === "AUTH_REQUIRED") {
       auth.clear(error); return true;
     }
@@ -130,6 +133,7 @@
         error => { if (id === roundId && !leaving) report(error); });
       if (id !== roundId || leaving) return;
       trace("scanner ready");
+      window.Bamboc.browserDiagnostics?.event("camera_started", { roundId: id });
       if (round.phase === "scanning") message("Inquadra il QR di una canzone.");
     } catch (error) {
       if (id !== roundId || leaving) return;
@@ -164,17 +168,28 @@
     el("playback-diagnostic").hidden = true;
     const signal = controller.signal;
     song = found;
+    countdownVisible = true; lastCountdownNumber = null;
     move("preparing");
     message("Preparati a indovinare!");
     if (navigator.vibrate) navigator.vibrate(60);
     cameraStopped = scanner.stop();
+    window.Bamboc.browserDiagnostics?.event("camera_stop_requested", { roundId: id });
+    cameraStopped.then(() => window.Bamboc.browserDiagnostics?.event("camera_stopped", { roundId: id }),
+      () => window.Bamboc.browserDiagnostics?.event("camera_stop_failed", { roundId: id }));
     cameraStopped.catch(() => {}); // Cleanup errors are handled by finish(), not leaked.
     const countdown = core.preplayCountdown(config.preplayMs, seconds => {
       if (id !== roundId || round.phase !== "preparing") return;
       const number = el("preplay-count");
       timeline.push({ event: seconds ? "countdown_" + seconds : "countdown_elapsed", atMs: Date.now(), monotonicMs: performance.now() });
-      number.textContent = String(Math.max(1, seconds));
-      number.classList.toggle("waiting", !seconds);
+      if (!seconds) {
+        countdownVisible = false;
+        el("preplay").hidden = true;
+        window.Bamboc.browserDiagnostics?.event("countdown_hidden", { roundId: id });
+        message("");
+      } else if (seconds !== lastCountdownNumber) {
+        lastCountdownNumber = seconds;
+        number.textContent = String(seconds);
+      }
     }, { signal });
     try {
       // The player starts preparing NOW; the promise is a gate, not a delayed play.
@@ -184,6 +199,7 @@
       });
       if (id !== roundId || signal.aborted || leaving) return true;
       move("playing");
+      window.Bamboc.browserDiagnostics?.event("playback_confirmed", { roundId: id });
       timeline.push({ event: "ui_playing", atMs: Date.now(), monotonicMs: performance.now() });
       message("Indovina titolo, artista e anno!");
       tick();
@@ -199,6 +215,7 @@
     return true;
   }
   function clearTimers() {
+    countdownVisible = false;
     cancelAnimationFrame(frame); frame = null;
     clearTimeout(deadlineTimer); deadlineTimer = null;
   }

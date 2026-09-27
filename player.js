@@ -1,7 +1,10 @@
 "use strict";
 (() => {
   const { config, core, auth } = window.Bamboc;
-  const traceAuth = (event, details) => window.Bamboc.diagnostics("PLAYER", event, details);
+  const traceAuth = (event, details) => {
+    window.Bamboc.diagnostics("PLAYER", event, details);
+    window.Bamboc.browserDiagnostics?.event(event, details);
+  };
   const diagnosed = (error, type, phase) => {
     error.diagnosticCode = type; error.phase = phase;
     traceAuth("error", { phase, type, status: error.status });
@@ -96,6 +99,7 @@
     return value;
   }
   function disconnectDevice(error = new Error("Player disconnesso.")) {
+    window.Bamboc.browserDiagnostics?.event("disconnected");
     connectionEpoch++;
     cancelConnection?.(error);
     cancelConnection = null;
@@ -145,6 +149,7 @@
     return sdkLoading;
   }
   function createPlayer() {
+    window.Bamboc.browserDiagnostics?.event("player_created");
     const instance = new window.Spotify.Player({
       name: "Bamboc-Hit Player", volume: desiredVolume,
       getOAuthToken: callback => {
@@ -173,6 +178,7 @@
     });
     instance.addListener("not_ready", () => {
       if (instance !== player) return;
+      window.Bamboc.browserDiagnostics?.event("not_ready");
       deviceId = null; connectionReady = false;
       notifyError(failure("DEVICE_NOT_READY", "Dispositivo Spotify offline. Riconnetti Spotify."));
     });
@@ -192,7 +198,7 @@
         if (instance !== player) return;
         if (currentRound) currentRound.diagnostic.sdkEvent = type;
         const messages = {
-          initialization_error: "Browser non compatibile con Spotify: controlla DRM e contenuti protetti.",
+          initialization_error: "Inizializzazione audio protetto Spotify fallita. Controlla DRM e contenuti protetti nella Diagnostica browser.",
           authentication_error: "Autenticazione del player fallita. Riprova o accedi nuovamente.",
           account_error: "Per giocare serve Spotify Premium e un account autorizzato.",
           playback_error: "Riproduzione Spotify non riuscita. Riprova.",
@@ -257,7 +263,18 @@
     // Only activate an authenticated, connected instance in the user's click.
     if (!auth.hasValidToken()) return Promise.reject(new auth.LoginRequired("Accedi a Spotify per iniziare."));
     if (!isReady()) return Promise.reject(failure("PLAYER_NOT_READY", "Connessione a Spotify necessaria prima di SCAN."));
-    return core.withTimeout(player.activateElement(), config.readyTimeoutMs, "Attivazione audio non riuscita.");
+    window.Bamboc.browserDiagnostics?.event("activate_called");
+    // Keep the SDK call synchronous within the SCAN click, before any await.
+    try {
+      const operation = player.activateElement();
+      return core.withTimeout(operation, config.readyTimeoutMs, "Attivazione audio non riuscita.").then(value => {
+        window.Bamboc.browserDiagnostics?.event("activate_success"); return value;
+      }, error => {
+        window.Bamboc.browserDiagnostics?.event("activate_failed"); throw error;
+      });
+    } catch (error) {
+      window.Bamboc.browserDiagnostics?.event("activate_failed"); return Promise.reject(error);
+    }
   }
   function matches(state, id) {
     const track = state?.track_window?.current_track;
@@ -365,11 +382,15 @@
     round.commandAt = Date.now();
     const attempt = { positionMs: round.position, result: "pending", atMs: round.commandAt };
     round.diagnostic.playbackCommands.push(attempt);
+    window.Bamboc.browserDiagnostics?.event("play_command", { roundId: round.diagnostic.roundId });
     try {
       const result = await step(round, auth.api("/me/player/play?device_id=" + encodeURIComponent(round.device), {
         body: { uris: ["spotify:track:" + round.song.id], position_ms: round.position },
         signal: round.controller.signal,
-        onResponse: status => { attempt.httpStatus = status; attempt.result = status >= 200 && status < 300 ? "success" : "http_error"; },
+        onResponse: status => {
+          attempt.httpStatus = status; attempt.result = status >= 200 && status < 300 ? "success" : "http_error";
+          window.Bamboc.browserDiagnostics?.event("play_http_response", { status, roundId: round.diagnostic.roundId });
+        },
       }), "Timeout avvio traccia.");
       attempt.result = "success"; attempt.httpStatus = result?.status ?? attempt.httpStatus ?? null;
     } catch (error) { attempt.result = "failed"; attempt.httpStatus = error.status ?? attempt.httpStatus ?? null; throw error; }

@@ -85,7 +85,6 @@ button:focus-visible { outline: 3px solid white; outline-offset: 4px; }
   text-shadow: 0 0 8px #ff3d81, 0 0 24px #ff2a7a;
 }
 .preplay-count { font-size: clamp(100px, 28vw, 180px); line-height: 1.1; }
-.preplay-count.waiting { font-size: clamp(20px, 5vw, 32px); overflow-wrap: anywhere; }
 .go-label { font-size: clamp(40px, 12vw, 64px); animation: go-in 0.2s ease-out; }
 @keyframes go-in { from { opacity: 0; transform: scale(0.92); } to { opacity: 1; transform: scale(1); } }
 .timer { position: relative; width: 180px; height: 180px; }
@@ -143,6 +142,8 @@ button:focus-visible { outline: 3px solid white; outline-offset: 4px; }
 #playback-diagnostic { margin: 20px auto; padding: 16px; max-width: 600px; text-align: left; background: #20152c; }
 #playback-diagnostic h2 { font-size: 18px; }
 #playback-diagnostic-data { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; user-select: text; }
+#browser-diagnostic { margin: 20px auto; max-width: 600px; text-align: left; padding: 12px; }
+#browser-diagnostic-data { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; user-select: text; }
 @media (max-width: 500px) { .timer-text { font-size: 32px; } }
 @keyframes neon-breathe {
   0%, 100% { text-shadow: 0 0 2px #fff, 0 0 6px #ff7ab8, 0 0 12px #ff3d81, 0 0 20px #ff2a7a; }
