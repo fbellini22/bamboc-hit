@@ -16,7 +16,7 @@ const test = (name, run) => tests.push({ name, run });
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const defer = () => { let resolve, reject; const promise = new Promise((a, b) => { resolve = a; reject = b; }); return {promise, resolve, reject}; };
 const id = "4g7ASoGYRujjvNL6DHX9j8", otherId = "3yGyWqmw9eCQPdJJ6iJLWs";
-const song = { id, title: "Editorial title", artist: "Editorial artist", year: "1963" };
+const song = { id, title: "Editorial title", artist: "Editorial artist", year: "1963", durationMs: 180000 };
 const plain = value => JSON.parse(JSON.stringify(value));
 function storage(initial = {}) {
   const data = new Map(Object.entries(initial));
@@ -207,7 +207,7 @@ function playerFixture(options = {}) {
     const item = {type, volume:target.volume, position:target.state?.position,
       paused:target.state?.paused, disconnected:target.disconnected, ...extra};
     history.push(item);
-    if (target.state && !target.state.paused && target.volume > 0 && !target.disconnected)
+    if (target.state && !target.state.paused && (target.volume > 0 || options.physicalMuteUnsupported) && !target.disconnected)
       audio.push({...item, id:target.state.track_window.current_track.id});
   }
   class FakePlayer {
@@ -306,18 +306,14 @@ test("player accepts ready/event before connect/HTTP resolves; metadata endpoint
   await f.api.prepare();
   const at=await f.api.play({...song,durationMs:180000});
   assert.ok(at<=Date.now());
-  assert.equal(f.calls.filter(x=>x==="/me/player").length,1);
+  assert.equal(f.calls.filter(x=>x==="/me/player").length,0);
   assert.equal(f.calls.some(x=>x.includes("/tracks")),false);
   await f.api.stop();
 });
-test("unknown duration loads muted then parks; next round uses cached offset without transfer", async () => {
-  const f=playerFixture();
-  await f.api.play(song); await f.api.stop(); await f.api.play(song); await f.api.stop();
-  assert.equal(f.calls.filter(x=>x==="seek").length,2);
-  assert.equal(f.requests[0].body.position_ms,0);
-  assert.ok(f.requests[1].body.position_ms>=1000);
-  assert.equal(f.calls.filter(x=>x==="/me/player").length,1);
-  assert.equal(f.calls.filter(x=>x.startsWith("/me/player/play")).length,2);
+test("missing duration blocks without play even when legacy SDK cache contains duration", async()=>{
+ const f=playerFixture({cache:JSON.stringify([[id,180000]])});
+ await assert.rejects(f.api.play({...song,durationMs:undefined}),e=>e.code==="LOCAL_DURATION_MISSING");
+ assert.equal(f.requests.length,0);assert.equal(f.calls.includes("seek"),false);
 });
 test("wrong-track playback is never confirmation and timeout is explicit", async () => {
   const f=playerFixture({wrongTrack:true});
@@ -335,7 +331,7 @@ test("not_ready invalidates device and next prepare reconnects", async () => {
   f.instance.emit("not_ready",{device_id:f.instance.device});
   await f.api.prepare();
   await f.api.play({...song,durationMs:180000}); await f.api.stop();
-  assert.ok(f.calls.includes("/me/player"));
+  assert.ok(f.calls.some(x=>x.startsWith("/me/player/play")));
 });
 test("autoplay failure rejects current playback waiter and permits next attempt", async () => {
   const f=playerFixture({silent:true}); await f.api.prepare();
@@ -517,29 +513,16 @@ test("SDK authentication/account/initialization/playback errors settle pending p
     await f.api.stop();
   }
 });
-test("404 playback performs one transfer recovery, never a metadata request", async () => {
-  const f=playerFixture();let attempts=0;
-  const api=f.c.Bamboc.auth.api;
-  f.c.Bamboc.auth.api=async(path,options)=>{
-    if (path.startsWith("/me/player/play") && attempts++===0) {
-      const error=new Error("device gone");error.status=404;throw error;
-    }
-    return api(path,options);
-  };
-  await f.api.play({...song,durationMs:180000});await f.api.stop();
-  assert.equal(attempts,2);
-  assert.equal(f.calls.filter(x=>x==="/me/player").length,2);
+test("404 playback fails explicitly without retry, seek or metadata request", async()=>{
+ const f=playerFixture();let attempts=0;const api=f.c.Bamboc.auth.api;
+ f.c.Bamboc.auth.api=async(path,options)=>{if(path.startsWith("/me/player/play")){attempts++;const e=new Error("device gone");e.status=404;throw e;}return api(path,options);};
+ await assert.rejects(f.api.play(song));assert.equal(attempts,1);assert.equal(f.calls.some(x=>x.includes("tracks")),false);
 });
-test("stale duration that could seek too near the end is corrected using SDK duration", async () => {
-  const f=playerFixture();
-  const original = core.randomPosition;
-  core.randomPosition = (duration, round, margin) => original(duration, round, margin, () => 0.9);
-  try {
-    await f.api.play({...song,durationMs:1000000000});await f.api.stop();
-    const seek=f.history.find(entry=>entry.type==="seek");
-    assert.ok(f.requests[0].body.position_ms>180000);
-    assert.ok(seek.requestedPosition>=1000 && seek.requestedPosition<=133000);
-  } finally { core.randomPosition = original; }
+test("inconsistent local duration fails explicitly without seeking or replaying", async()=>{
+ const f=playerFixture();const original=core.randomPosition;
+ core.randomPosition=(duration,round,margin)=>original(duration,round,margin,()=>0.9);
+ try{await assert.rejects(f.api.play({...song,durationMs:1000000000}),e=>e.code==="LOCAL_DURATION_MISMATCH");
+ assert.equal(f.requests.length,1);assert.equal(f.calls.includes("seek"),false);}finally{core.randomPosition=original;}
 });
 test("OAuth cancellation returns explicit login error without token exchange", async () => {
   let calls=0;
@@ -591,71 +574,51 @@ test("timed-out pause is reused on STOP retry, so no late duplicate pause can re
   assert.equal(calls,1);
 });
 
-test("mute readback precedes transfer and play; VIA callback precedes unmute", async () => {
-  const f=playerFixture();let via=false;
-  await f.api.play(song,()=>{}, {onStarting(){
-    via=true;assert.equal(f.instance.volume,0);assert.equal(f.audio.length,0);
-    assert.ok(f.instance.state.position>=1000);assert.equal(f.instance.state.paused,false);
-  }});
-  assert.equal(via,true);
-  assert.ok(f.calls.indexOf("volume:0")<f.calls.indexOf("/me/player"));
-  assert.equal(f.requests[0].volume,0);
-  assert.ok(f.audio.every(entry=>entry.position>=1000));
-  assert.equal(f.instance.volume,0.8);await f.api.stop();
+test("direct playback uses no volume manipulation or preparatory transport commands", async()=>{
+ const f=playerFixture({physicalMuteUnsupported:true});await f.api.play(song);
+ assert.equal(f.requests.length,1);assert.ok(f.audio.every(x=>x.position>=1000));
+ assert.equal(f.calls.some(x=>/^(volume:|pause$|seek$|resume$)/.test(x)),false);await f.api.stop();
 });
 test("known duration sends random position in first play request", async () => {
   const f=playerFixture();await f.api.play({...song,durationMs:180000});
   assert.ok(f.requests[0].body.position_ms>=1000);
   assert.ok(f.requests[0].body.position_ms<=133000);await f.api.stop();
 });
-test("duration cache is keyed by track and saved from matching SDK state", async () => {
-  const f=playerFixture();await f.api.play(song);await f.api.stop();
-  await f.api.play({...song,id:otherId});await f.api.stop();
-  assert.deepEqual(f.requests.map(x=>x.body.position_ms),[0,0]);
-  const cache=JSON.parse(f.c.sessionStorage.getItem("bamboc.spotify.durations.v1"));
-  assert.deepEqual(cache,[[id,180000],[otherId,180000]]);
+test("each track uses its own local duration and no SDK duration cache is written", async()=>{
+ const f=playerFixture();await f.api.play(song);await f.api.stop();
+ await f.api.play({...song,id:otherId,durationMs:60000});await f.api.stop();
+ assert.ok(f.requests[0].body.position_ms<=133000);assert.ok(f.requests[1].body.position_ms<=13000);
+ assert.equal(f.c.sessionStorage.getItem("bamboc.spotify.durations.v1"),null);
 });
-test("corrupt persisted durations are ignored rather than used as offsets", async () => {
-  for(const cache of ['null','{broken',JSON.stringify([[id,-1],[otherId,180000]])]) {
-    const f=playerFixture({cache});await f.api.play(song);
-    assert.equal(f.requests[0].body.position_ms,0);await f.api.stop();
-  }
+test("legacy duration cache never substitutes for missing verified local duration", async()=>{
+ for(const cache of ['null','{broken',JSON.stringify([[id,180000]])]){
+ const f=playerFixture({cache});await assert.rejects(f.api.play({...song,durationMs:undefined}),e=>e.code==="LOCAL_DURATION_MISSING");
+ assert.equal(f.requests.length,0);}
 });
-test("uncontrollable/mute-failing volume blocks transfer and track load", async () => {
-  for(const options of [{ios:true},{muteFail:true},{volumeReadFail:true},{initialVolume:0}]) {
-    const f=playerFixture(options);await assert.rejects(f.api.play(song));
-    assert.equal(f.requests.length,0);assert.equal(f.calls.includes("/me/player"),false);
-  }
+test("mobile volume limitations do not require mute, pause, seek or resume for direct start", async()=>{
+ for(const options of [{ios:true},{muteFail:true},{volumeReadFail:true},{seekFail:true},{resumeFail:true}]){
+ const f=playerFixture(options);await f.api.play(song);assert.ok(f.requests[0].body.position_ms>=1000);
+ assert.equal(f.calls.some(x=>/^(volume:|seek$|resume$)/.test(x)),false);await f.api.stop();}
 });
-test("preparation failures retire muted device and preserve volume for replacement", async () => {
-  for(const options of [{seekFail:true},{pauseFail:true},{resumeFail:true},{restoreFail:true},
-    {seekIgnore:true},{stalled:true},{duration:0},{duration:30000}]) {
-    const f=playerFixture(options);await assert.rejects(f.api.play(song));
-    const retired=f.instance;assert.equal(retired.disconnected,true);
-    assert.equal(f.audio.length,0);
-    await f.api.prepare();assert.notEqual(f.instance,retired);assert.equal(f.instance.volume,0.8);
-    f.api.disconnect();
-  }
+test("unconfirmed direct playback retires device before allowing a replacement", async()=>{
+ for(const options of [{stalled:true},{wrongTrack:true},{duration:1000}]){
+ const f=playerFixture(options);await assert.rejects(f.api.play(song));const old=f.instance;
+ assert.equal(old.disconnected,true);await f.api.prepare();assert.notEqual(f.instance,old);f.api.disconnect();}
 });
-test("countdown gate parks track muted, and cancellation cannot resume it", async () => {
-  const gate=defer(), controller=new AbortController(), f=playerFixture();
-  const pending=f.api.play(song,()=>{}, {signal:controller.signal,readyToStart:gate.promise});
-  await delay(15);assert.equal(f.audio.length,0);assert.equal(f.calls.includes("resume"),false);
-  assert.equal(f.instance.state.paused,true);
-  controller.abort(new Error("cancel"));await assert.rejects(pending,/cancel/);
-  gate.resolve();await delay(0);assert.equal(f.calls.includes("resume"),false);
-  assert.equal(f.instance.disconnected,true);
+test("countdown cancellation sends no playback even if the countdown promise resolves later", async()=>{
+ const gate=defer(),controller=new AbortController(),f=playerFixture();
+ const pending=f.api.play(song,()=>{},{signal:controller.signal,readyToStart:gate.promise});
+ await delay(15);assert.equal(f.requests.length,0);assert.equal(f.instance.state,null);
+ controller.abort(new Error("cancel"));await assert.rejects(pending,/cancel/);gate.resolve();await delay(0);
+ assert.equal(f.requests.length,0);assert.equal(f.instance.disconnected,true);
 });
-test("late seek from cancelled A targets retired instance, never B", async () => {
-  const gate=defer(), controller=new AbortController(), f=playerFixture({seekGate:gate.promise});
-  const pending=f.api.play(song,()=>{}, {signal:controller.signal});await delay(15);
-  const old=f.instance;controller.abort(new Error("cancel"));await assert.rejects(pending);
-  f.options.seekGate=null;
-  await f.api.play({...song,id:otherId});const current=f.instance;
-  gate.resolve();await delay(0);
-  assert.notEqual(current,old);assert.equal(old.disconnected,true);
-  assert.equal(current.state.track_window.current_track.id,otherId);assert.equal(current.state.paused,false);
-  await f.api.stop();
+test("late preparation gate cannot issue pause, seek or playback against round B", async()=>{
+ const gate=defer(),controller=new AbortController(),f=playerFixture();
+ const pending=f.api.play(song,()=>{},{signal:controller.signal,readyToStart:gate.promise});await delay(15);
+ const old=f.instance;controller.abort(new Error("cancel"));await assert.rejects(pending);
+ await f.api.play({...song,id:otherId});const current=f.instance;gate.resolve();await delay(0);
+ assert.notEqual(current,old);assert.equal(current.state.paused,false);assert.equal(f.requests.length,1);
+ assert.equal(f.calls.includes("pause"),false);assert.equal(f.calls.includes("seek"),false);await f.api.stop();
 });
 test("late HTTP A and SDK events are isolated from round B", async () => {
   const gate=defer(), controller=new AbortController(), f=playerFixture({apiGate:gate.promise});
@@ -681,13 +644,13 @@ test("fast preparation waits 3-2-1; reveal and timer stay disabled", async () =>
     f.click("reveal-btn");await clock.advance(1000);
   }
   await pending;assert.equal(f.element("countdown").textContent,"45");
-  assert.equal(f.element("go-label").hidden,false);f.click("reveal-btn");await flush();
+  assert.equal(f.element("go-label").hidden,true);f.click("reveal-btn");await flush();
   assert.equal(clock.pending,0);
 });
-test("slow preparation shows PREPARAZIONE until playback confirmed", async () => {
+test("slow preparation holds 1 until playback confirmed without intermediate text", async () => {
   const clock=fakeClock(), gate=defer(), f=appFixture({clock,preplayMs:3000});await flush();
   f.setPlay(gate.promise);f.click("scan-btn");await flush();const pending=f.scan("spotify:track:"+id);
-  await clock.advance(3000);assert.equal(f.element("preplay-count").textContent,"PREPARAZIONE…");
+  await clock.advance(3000);assert.equal(f.element("preplay-count").textContent,"1");
   assert.equal(f.element("go-label").hidden,true);assert.equal(f.element("timer").hidden,true);
   gate.resolve(null);await pending;assert.equal(f.element("countdown").textContent,"45");
   f.click("reveal-btn");await flush();assert.equal(clock.pending,0);
@@ -1064,47 +1027,32 @@ test("OAuth diagnostic: PKCE storage failure is explicit and cannot redirect", a
   assert.equal(c.location.assigned,undefined);
 });
 
-test("mobile diagnostic: 3-2-1 gate, direct random play command, progression, VIA, unmute", async()=>{
-  const f=playerFixture(),clock=fakeClock(),ticks=[],events=[];
-  f.c.Bamboc.diagnostics=(_area,event,details)=>events.push({event,...details});
-  const gate=core.preplayCountdown(3000,n=>ticks.push(n),{now:clock.now,schedule:clock.schedule,unschedule:clock.unschedule});
-  let via=false;
-  const pending=f.api.play({...song,durationMs:180000},()=>{}, {roundId:42,readyToStart:gate,onStarting(){
-    via=true;assert.equal(f.instance.volume,0);assert.equal(f.instance.state.paused,false);
-    assert.deepEqual(ticks,[3,2,1,0]);
-  }});
-  await delay(20);assert.equal(f.instance.state.paused,true);assert.equal(via,false);
-  assert.equal(f.requests.length,1);assert.ok(f.requests[0].body.position_ms>=1000);
-  assert.ok(f.requests[0].body.position_ms<=133000);assert.equal(f.requests[0].volume,0);
-  await clock.advance(1000);await clock.advance(1000);await clock.advance(1000);await pending;
-  const phases=events.filter(x=>x.event==="round_phase").map(x=>x.phase);
-  assert.ok(phases.indexOf("confirm_position_progression")<phases.indexOf("VIA"));
-  assert.ok(phases.indexOf("VIA")<phases.indexOf("restore_volume"));
-  assert.ok(events.filter(x=>x.event.startsWith("round_")).every(x=>x.roundId===42));assert.equal(via,true);await f.api.stop();
+test("local duration: countdown 3-2-1 precedes first direct play and PLAYING needs progression", async()=>{
+ const f=playerFixture({physicalMuteUnsupported:true}),clock=fakeClock(),ticks=[],events=[];
+ f.c.Bamboc.diagnostics=(_a,event,details)=>events.push({event,...details});
+ const gate=core.preplayCountdown(3000,n=>ticks.push(n),{now:clock.now,schedule:clock.schedule,unschedule:clock.unschedule});
+ const pending=f.api.play(song,()=>{},{roundId:42,readyToStart:gate});
+ await delay(10);assert.equal(f.requests.length,0);assert.equal(f.audio.length,0);
+ await clock.advance(1000);assert.equal(f.requests.length,0);await clock.advance(1000);assert.equal(f.requests.length,0);
+ await clock.advance(1000);await pending;assert.deepEqual(ticks,[3,2,1,0]);assert.equal(f.requests.length,1);
+ assert.ok(f.requests[0].body.position_ms>=1000);assert.equal(f.calls.includes("pause"),false);assert.equal(f.calls.includes("seek"),false);
+ assert.ok(events.some(x=>x.event==="confirmation_success"));assert.ok(events.some(x=>x.phase==="playing_confirmed"));await f.api.stop();
 });
-test("mobile diagnostic: mute, load, park, resume, progression and unmute failures are distinguishable", async()=>{
-  for(const [options,expected] of [[{ios:true},"mute_before_transfer"],[{wrongTrack:true},"confirm_loaded_track_and_duration"],
-    [{duration:0},"confirm_loaded_track_and_duration"],[{duration:30000},"validate_duration_and_random_position"],
-    [{pauseFail:true},"pause_preparation"],[{seekIgnore:true},"confirm_parked_position"],
-    [{resumeFail:true},"resume"],[{stalled:true},"confirm_position_progression"],[{restoreFail:true},"restore_volume"]]) {
-    const f=playerFixture(options),snapshots=[];f.api.onDiagnostic(d=>snapshots.push(d));
-    await assert.rejects(f.api.play(song,()=>{},{roundId:71}));
-    assert.equal(snapshots.length,1);const d=snapshots[0];assert.equal(d.phase,expected);assert.equal(d.roundId,71);
-    assert.equal(d.trackId,id);assert.equal(d.localDurationPresent,false);assert.equal(d.sdkReadyBeforePreparation,true);
-    assert.equal(d.devicePresentBeforePreparation,true);
-    if(options.ios) {assert.equal(d.transfer.result,"not_attempted");assert.equal(d.playbackCommands.length,0);assert.equal(d.observedVolume,1);}
-    if(options.stalled){assert.equal(d.failure.confirmationTimeout,true);assert.equal(d.lastState.paused,false);}
-  }
+test("direct playback diagnostics distinguish missing duration, wrong track, mismatch and stalled position", async()=>{
+ for(const [options,track,expected] of [[{}, {...song,durationMs:undefined},"validate_local_duration"],
+ [{wrongTrack:true},song,"confirm_direct_playback"],[{duration:1000},song,"confirm_direct_playback"],
+ [{stalled:true},song,"confirm_position_progression"]]){
+ const f=playerFixture(options),reports=[];f.api.onDiagnostic(d=>reports.push(d));await assert.rejects(f.api.play(track,()=>{},{roundId:71}));
+ const d=reports.at(-1);assert.equal(d.phase,expected);assert.equal(d.roundId,71);assert.equal(d.trackId,id);
+ if(options.stalled){assert.equal(d.failure.confirmationTimeout,true);assert.ok(d.timeline.some(x=>x.event==="confirmation_timeout"));}
+ }
 });
-test("mobile diagnostic: transfer/play HTTP failures retain status and command position", async()=>{
-  for(const target of ["/me/player","/me/player/play"]) {
-    const f=playerFixture({realAuth:true,tokens:savedSession(),fetcher:async url=>response(url.includes(target)&&
-      (target.endsWith("play")||!url.includes("/play?"))?403:204)}),reports=[];
-    f.api.onDiagnostic(d=>reports.push(d));await assert.rejects(f.api.play({...song,durationMs:180000}));
-    const d=reports[0];assert.equal(d.failure.httpStatus,403);
-    assert.equal(d.phase,target.endsWith("play")?"play_command":"transfer");
-    if(target.endsWith("play")){assert.equal(d.transfer.httpStatus,204);assert.equal(d.playbackCommands[0].httpStatus,403);assert.ok(d.playbackCommands[0].positionMs>=1000);}
-  }
+test("mobile diagnostic: direct play HTTP failure retains status, with no transfer command", async()=>{
+ const f=playerFixture({realAuth:true,tokens:savedSession(),fetcher:async()=>response(403)}),reports=[];
+ f.api.onDiagnostic(d=>reports.push(d));await assert.rejects(f.api.play(song));
+ const d=reports.at(-1);assert.equal(d.failure.httpStatus,403);assert.equal(d.phase,"play_command");
+ assert.equal(d.transfer.result,"not_required_direct_device");assert.equal(d.playbackCommands[0].httpStatus,403);
+ assert.ok(d.playbackCommands[0].positionMs>=1000);
 });
 test("mobile diagnostic: panel survives SDK authentication reset and displays safe round snapshot", async()=>{
   const gate=defer(),f=sessionFixture({apiGate:gate.promise});await flush();
@@ -1122,28 +1070,26 @@ test("mobile diagnostic: SDK events during preparation are captured before clean
     assert.equal(reports[0].sdkEvent,event);assert.equal(reports[0].failure.type,"SDK_"+event.toUpperCase());gate.resolve();
   }
 });
-test("mobile diagnostic: unknown duration uses silent zero load and confirms SDK duration before random start", async()=>{
-  const f=playerFixture({stalled:true}),reports=[];f.api.onDiagnostic(d=>reports.push(d));await assert.rejects(f.api.play(song));
-  const d=reports[0];assert.equal(d.durationSource,"SDK_pending");assert.equal(d.playbackCommands[0].positionMs,0);
-  assert.equal(d.sdkDurationMs,180000);assert.equal(d.positionValidForSDKDuration,true);assert.ok(d.randomPositionMs>=1000);
+test("local duration missing never uses SDK load-from-zero fallback", async()=>{
+ const f=playerFixture(),reports=[];f.api.onDiagnostic(d=>reports.push(d));
+ await assert.rejects(f.api.play({...song,durationMs:undefined}));const d=reports.at(-1);
+ assert.equal(d.localDurationPresent,false);assert.equal(d.failure.type,"LOCAL_DURATION_MISSING");assert.equal(d.playbackCommands.length,0);
 });
-test("mobile diagnostic: late operation keeps old round ID and cannot overwrite a new report", async()=>{
-  const gate=defer(),f=playerFixture({seekGate:gate.promise}),events=[],reports=[],controller=new AbortController();
-  f.c.Bamboc.diagnostics=(_a,event,details)=>events.push({event,...details});f.api.onDiagnostic(d=>reports.push(d));
-  const pending=f.api.play(song,()=>{},{roundId:81,signal:controller.signal});await delay(10);
-  controller.abort(new Error("Round annullato."));await assert.rejects(pending);
-  f.options.seekGate=null;f.options.stalled=true;await assert.rejects(f.api.play(song,()=>{},{roundId:82}));
-  const count=reports.length;gate.resolve();await delay(5);
-  assert.equal(reports.length,count);assert.equal(reports.at(-1).roundId,82);
-  assert.ok(events.some(e=>e.event==="late_round_operation_ignored"&&e.roundId===81&&e.phase==="seek_random_position"));
+test("mobile diagnostic: late play response retains round ID and cannot overwrite newer failure", async()=>{
+ const gate=defer(),f=playerFixture({apiGate:gate.promise}),events=[],reports=[],controller=new AbortController();
+ f.c.Bamboc.diagnostics=(_a,event,details)=>events.push({event,...details});f.api.onDiagnostic(d=>reports.push(d));
+ const pending=f.api.play(song,()=>{},{roundId:81,signal:controller.signal});await delay(10);
+ controller.abort(new Error("Round annullato."));await assert.rejects(pending);
+ f.options.apiGate=null;f.options.stalled=true;await assert.rejects(f.api.play(song,()=>{},{roundId:82}));
+ const count=reports.length;gate.resolve();await delay(5);assert.equal(reports.length,count);assert.equal(reports.at(-1).roundId,82);
+ assert.ok(events.some(e=>e.event==="late_round_operation_ignored"&&e.roundId===81&&e.phase==="play_command"));
 });
 
-test("mobile diagnostic: arbitrary SDK rejection text is never exposed", async()=>{
-  const f=playerFixture(),reports=[];f.api.onDiagnostic(d=>reports.push(d));await f.api.prepare();
-  f.instance.setVolume=()=>Promise.reject(new Error("Timeout access_token=short-secret code=private verifier=secret"));
-  await assert.rejects(f.api.play(song));const text=JSON.stringify(reports);
-  assert.equal(text.includes("short-secret"),false);assert.equal(text.includes("private"),false);
-  assert.match(reports[0].failure.message,/omesso/);
+test("mobile diagnostic: arbitrary playback rejection text is never exposed", async()=>{
+ const f=playerFixture(),reports=[];f.api.onDiagnostic(d=>reports.push(d));
+ f.c.Bamboc.auth.api=()=>Promise.reject(new Error("Timeout access_token=short-secret code=private verifier=secret"));
+ await assert.rejects(f.api.play(song));const text=JSON.stringify(reports);
+ assert.equal(text.includes("short-secret"),false);assert.equal(text.includes("private"),false);assert.match(reports[0].failure.message,/omesso/);
 });
 test("mobile diagnostic: interruption after successful playback preserves observed pause", async()=>{
   const f=sessionFixture();await flush();f.click("scan-btn");await flush();await f.scan("spotify:track:"+id);
@@ -1151,6 +1097,104 @@ test("mobile diagnostic: interruption after successful playback preserves observ
   const d=JSON.parse(f.element("playback-diagnostic-data").textContent);
   assert.equal(d.phase,"playing_confirmed");assert.equal(d.failure.type,"PLAYBACK_INTERRUPTED");
   assert.equal(d.lastState.paused,true);assert.equal(f.element("playback-diagnostic").hidden,false);
+});
+
+test("phone regression: ignored physical mute cannot leak preload because there is no preload", async()=>{
+ const f=playerFixture({physicalMuteUnsupported:true}),gate=defer();
+ const pending=f.api.play(song,()=>{},{readyToStart:gate.promise});await delay(10);
+ assert.equal(f.audio.length,0);assert.equal(f.requests.length,0);gate.resolve();await pending;
+ assert.ok(f.audio.length>0);assert.ok(f.audio.every(x=>x.position>=1000));
+ assert.equal(f.calls.includes("seek"),false);assert.equal(f.calls.includes("resume"),false);await f.api.stop();
+});
+test("visible countdown contains only 3,2,1 while delayed setup remains pending", async()=>{
+  const clock=fakeClock(),gate=defer(),f=appFixture({clock,preplayMs:3000});await flush();
+  f.setPlay(gate.promise);f.click("scan-btn");await flush();const pending=f.scan("spotify:track:"+id);await flush();
+  const visible=[];
+  for(let i=0;i<5;i++){visible.push(f.element("preplay-count").textContent);await clock.advance(1000);}
+  assert.deepEqual(visible,["3","2","1","1","1"]);assert.equal(f.element("go-label").hidden,true);
+  assert.equal(f.element("timer").hidden,true);gate.resolve(null);await pending;
+  assert.equal(f.element("go-label").hidden,true);assert.equal(f.element("preplay").hidden,true);
+  f.click("reveal-btn");await flush();
+});
+
+test("local durations: every dataset entry has exact-ID Spotify verification and editorial conflict stays blocked", async()=>{
+  const c=environment();load(c,"song.js");
+  const evidence=JSON.parse(await readFile(new URL("duration-verification.json",root),"utf8"));
+  const byId=new Map(evidence.map(row=>[row.id,row]));assert.equal(byId.size,346);
+  assert.equal(c.SONGS.length,347);
+  for(const entry of c.SONGS){
+    const proof=byId.get(entry.id);assert.equal(proof.status,"verified");assert.equal(proof.httpStatus,200);
+    assert.equal(proof.returnedId,entry.id);assert.equal(proof.returnedUri,"spotify:track:"+entry.id);
+    assert.equal(proof.source,"https://open.spotify.com/embed/track/"+entry.id);
+    assert.equal(entry.durationMs,proof.durationMs);assert.ok(Number.isSafeInteger(entry.durationMs));
+  }
+  const catalog=core.createCatalog(c.SONGS);assert.equal(catalog.isConflict("515XcapFOMtOOiGU31UqNp"),true);
+  assert.equal(catalog.lookup("515XcapFOMtOOiGU31UqNp"),null);assert.equal(catalog.size,345);
+});
+test("local duration: offset precedes first play and runtime never requests metadata or transport preparation", async()=>{
+  const f=playerFixture(),events=[];f.c.Bamboc.diagnostics=(_a,event,d)=>events.push({event,...d});
+  await f.api.play(song);
+  assert.equal(f.requests.length,1);assert.ok(f.requests[0].path.includes("device_id="));
+  assert.deepEqual(f.requests[0].body.uris,["spotify:track:"+id]);assert.ok(f.requests[0].body.position_ms>=1000);
+  assert.ok(events.findIndex(x=>x.event==="random_position_calculated")<events.findIndex(x=>x.phase==="play_command"));
+  assert.equal(f.calls.some(x=>/tracks|seek|resume|pause|volume:/.test(x)),false);
+  assert.equal(f.calls.includes("/me/player"),false);await f.api.stop();
+});
+test("local duration: absent/invalid/too-short values never produce any play command", async()=>{
+  for(const durationMs of [undefined,null,0,-1,NaN,Infinity,"180000",180000.5,47000]) {
+    const f=playerFixture();await assert.rejects(f.api.play({...song,durationMs}));assert.equal(f.requests.length,0);
+  }
+});
+test("local duration: not-ready player cannot start after countdown completion", async()=>{
+  const f=playerFixture({noReady:true}),reports=[];f.api.onDiagnostic(d=>reports.push(d));
+  await assert.rejects(f.api.play(song,()=>{},{readyToStart:Promise.resolve()}));
+  assert.equal(f.requests.length,0);assert.equal(f.audio.length,0);assert.equal(reports.at(-1).failure.type,"PLAYER_READY_TIMEOUT");
+});
+test("confirmation lifecycle: success, ordinary failure and timeout remain separate", async()=>{
+  const f=playerFixture(),events=[];f.c.Bamboc.diagnostics=(_a,event)=>events.push(event);
+  await f.api.play(song);assert.equal(events.filter(x=>x==="confirmation_success").length,2);
+  assert.equal(events.filter(x=>x==="confirmation_started").length,2);await f.api.stop();
+  for(const [options,expected] of [[{stalled:true},"confirmation_timeout"],[{duration:1000},"confirmation_failed"]]){
+    const g=playerFixture(options),reports=[];g.api.onDiagnostic(d=>reports.push(d));await assert.rejects(g.api.play(song));
+    const timeline=reports.at(-1).timeline;assert.ok(timeline.some(x=>x.event==="confirmation_started"));
+    assert.ok(timeline.some(x=>x.event===expected));assert.equal(timeline.some(x=>x.phase==="playing_confirmed"),false);
+  }
+});
+test("confirmation tolerates real elapsed playback instead of a fixed start window", async()=>{
+  const f=playerFixture();let now=Date.now();f.c.Date=class extends Date {static now(){return now;}};
+  const original=f.c.Bamboc.auth.api;
+  f.c.Bamboc.auth.api=async(path,options)=>{await original(path,options);if(path.startsWith("/me/player/play")){
+    now+=5000;f.instance.state.position+=5000;
+  }};
+  await f.api.play(song);assert.equal(f.instance.disconnected,false);await f.api.stop();
+});
+test("UI never declares PLAYING from HTTP success without measured position progression", async()=>{
+  const f=sessionFixture({stalled:true});await flush();f.click("scan-btn");await flush();await f.scan("spotify:track:"+id);
+  assert.equal(f.element("timer").hidden,true);assert.equal(f.element("reveal-btn").disabled,true);
+  const report=JSON.parse(f.element("playback-diagnostic-data").textContent);
+  assert.equal(report.playbackCommands[0].result,"success");assert.equal(report.failure.confirmationTimeout,true);
+});
+
+test("real app/player: QR countdown then one direct start; reveal keeps editorial metadata", async()=>{
+  const clock=fakeClock(),player=playerFixture({realAuth:true,tokens:savedSession(),physicalMuteUnsupported:true});
+  const f=appFixture({clock,context:player.c,realSession:true,preplayMs:3000});await flush();
+  f.click("scan-btn");await flush();const pending=f.scan("spotify:track:"+id);await flush();
+  const visible=[];
+  for(const digit of ["3","2","1"]){visible.push(f.element("preplay-count").textContent);
+    assert.equal(f.element("preplay-count").textContent,digit);assert.equal(player.requests.length,0);
+    assert.equal(player.audio.length,0);await clock.advance(1000);}
+  await pending;assert.deepEqual(visible,["3","2","1"]);assert.equal(player.requests.length,1);
+  assert.ok(player.requests[0].body.position_ms>=1000);assert.equal(f.element("timer").hidden,false);
+  assert.equal(f.element("go-label").hidden,true);f.click("reveal-btn");await flush();
+  const back=f.element("result").children[0].children[1];
+  assert.deepEqual(back.children.map(x=>x.textContent),[song.title,song.artist,song.year]);
+});
+test("SDK failure while confirming publishes confirmation_failed in the phone panel snapshot", async()=>{
+  const f=playerFixture({silent:true}),reports=[];f.api.onDiagnostic(d=>reports.push(d));
+  const pending=f.api.play(song);await delay(5);f.instance.emit("playback_error",{});await assert.rejects(pending);
+  const events=reports.at(-1).timeline.map(x=>x.event);
+  assert.ok(events.includes("confirmation_started"));assert.ok(events.includes("confirmation_failed"));
+  assert.equal(events.includes("confirmation_success"),false);
 });
 
 let failures=0;

@@ -1,0 +1,20 @@
+{
+  "source": "Spotify public embed structured entity.duration (milliseconds), exact entity.id AND entity.uri match",
+  "entries": 347,
+  "uniqueIds": 346,
+  "entriesWithVerifiedDuration": 347,
+  "uniqueIdsVerified": 346,
+  "missing": [],
+  "failedVerifications": [],
+  "embedUnavailable": [
+    {
+      "id": "5QNEUi7oFTKcOrEMzLA9uV",
+      "durationMs": 178626
+    },
+    {
+      "id": "56i7VC28M9eCBRMZ5autBG",
+      "durationMs": 187193
+    }
+  ],
+  "editorialConflictStillBlocked": "515XcapFOMtOOiGU31UqNp"
+}

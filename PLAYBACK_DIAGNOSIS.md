@@ -1,5 +1,8 @@
 # Diagnostica temporanea del playback su smartphone
 
+> Report storico: il caricamento silenzioso qui descritto è stato sostituito
+> dall'[avvio diretto con durate locali](DURATION_PLAYBACK_REPORT.md).
+
 Il login verificato su PC non identifica la causa del fallimento del playback sul
 telefono. Questa modifica raccoglie evidenze: nessuna riscrittura del playback,
 nessun nuovo retry, nessun commit o push.

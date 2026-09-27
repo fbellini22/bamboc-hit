@@ -9,7 +9,7 @@
     el("playback-diagnostic-data").textContent = JSON.stringify(snapshot, null, 2);
     el("playback-diagnostic").hidden = false;
   });
-  let song = null, startedAt = 0, frame = null, deadlineTimer = null, goTimer = null;
+  let song = null, startedAt = 0, frame = null, deadlineTimer = null;
   let cameraStopped = Promise.resolve(), revealAfterStop = false;
   let spotifyState = "AUTH_REQUIRED", sessionId = 0, connecting = null;
   let roundId = 0, controller = null, leaving = false;
@@ -36,7 +36,7 @@
     el("timer").hidden = phase !== "playing";
     el("reveal-btn").hidden = phase !== "playing";
     el("reveal-btn").disabled = phase !== "playing";
-    el("go-label").hidden = phase !== "playing" || !goTimer;
+    el("go-label").hidden = true;
     el("reset-btn").hidden = !["revealed", "stopping", "stop-error"].includes(phase);
     el("reset-btn").disabled = phase === "stopping" || (phase === "revealed" && !canScan());
     el("reset-btn").textContent = phase === "stop-error" ? "RIPROVA STOP"
@@ -152,6 +152,7 @@
     }
     const trace = traceRound();
     trace("scan detected");
+    const timeline = [{ event: "qr_recognized", atMs: Date.now(), monotonicMs: performance.now() }];
     const trackId = core.extractTrackId(text);
     if (!trackId) { message("QR non valido: serve un URL o URI Spotify di una traccia."); return false; }
     if (catalog.isConflict(trackId)) { message("ID ambiguo nel database: occorre correggere le voci duplicate."); return false; }
@@ -171,23 +172,19 @@
     const countdown = core.preplayCountdown(config.preplayMs, seconds => {
       if (id !== roundId || round.phase !== "preparing") return;
       const number = el("preplay-count");
-      number.textContent = seconds ? String(seconds) : "PREPARAZIONE…";
+      timeline.push({ event: seconds ? "countdown_" + seconds : "countdown_elapsed", atMs: Date.now(), monotonicMs: performance.now() });
+      number.textContent = String(Math.max(1, seconds));
       number.classList.toggle("waiting", !seconds);
     }, { signal });
     try {
       // The player starts preparing NOW; the promise is a gate, not a delayed play.
       const readyToStart = Promise.all([countdown, core.withTimeout(cameraStopped,
         config.requestTimeoutMs, "Arresto fotocamera non confermato.")]);
-      startedAt = await playback.play(song, trace, { signal, readyToStart, roundId: id,
-        onStarting() {
-          if (id !== roundId || signal.aborted || leaving) return;
-          el("preplay-count").textContent = "VIA!";
-          el("preplay-count").classList.toggle("waiting", true);
-        },
+      startedAt = await playback.play(song, trace, { signal, readyToStart, roundId: id, timeline,
       });
       if (id !== roundId || signal.aborted || leaving) return true;
-      goTimer = setTimeout(() => { goTimer = null; el("go-label").hidden = true; }, config.goLabelMs);
       move("playing");
+      timeline.push({ event: "ui_playing", atMs: Date.now(), monotonicMs: performance.now() });
       message("Indovina titolo, artista e anno!");
       tick();
       if (round.phase === "playing")
@@ -204,7 +201,6 @@
   function clearTimers() {
     cancelAnimationFrame(frame); frame = null;
     clearTimeout(deadlineTimer); deadlineTimer = null;
-    clearTimeout(goTimer); goTimer = null;
   }
   function tick() {
     if (round.phase !== "playing") return;

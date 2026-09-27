@@ -1,6 +1,6 @@
 # Bamboc-Hit
 
-Gioco musicale vanilla HTML/CSS/JS. Spotify autentica e riproduce; `song.js` controlla esclusivamente titolo, artista e anno. Nessuna richiesta al catalogo Spotify.
+Gioco musicale vanilla HTML/CSS/JS. Spotify autentica e riproduce; `song.js` contiene ID, titolo, artista, anno e durata verificata. Nessuna richiesta al catalogo Spotify durante il gioco.
 
 ## Avvio
 
@@ -8,7 +8,7 @@ Servire questa cartella tramite un server statico HTTPS, oppure HTTP su `127.0.0
 
 Occorrono un account Spotify Premium abilitato alla app, un browser con DRM compatibile e accesso alla camera. Dopo un vecchio login senza refresh token è necessario accedere di nuovo. La app non usa un client secret.
 
-Login → attendere player → SCAN → QR → PREPARING e 3-2-1 → VIA! → segmento casuale e 45 secondi → REVEAL → NEXT SONG.
+Login → attendere player → SCAN → QR → 3 → 2 → 1 → segmento casuale e 45 secondi → REVEAL → NEXT SONG.
 SCAN è disponibile soltanto con sessione completa, token non scaduto, connect riuscito e READY con device valido. Token corrotti, callback OAuth invalido e refresh fallito riportano al pulsante LOGIN, cancellando soltanto le chiavi dell'app. Un device non pronto espone **Riconnetti Spotify**, senza avviare un round; **Esci da Spotify** annulla round e richieste, ferma camera/player e invalida la sessione. Una sessione valida salvata può essere recuperata al reload senza un nuovo login interattivo.
 
 In Spotify Developer Dashboard registrare esattamente `https://fbellini22.github.io/bamboc-hit/` come Redirect URI (HTTPS, slash finale, nessuna query). La configurazione del dashboard deve essere verificata dal proprietario; non è modificata dall'app.
@@ -19,9 +19,20 @@ QR supportati: URI spotify:track:ID e URL HTTPS open.spotify.com/track/ID, anche
 Conservare gli ID stampati. Aggiungere le voci in `window.SONGS` con id/title/artist/year. È possibile aggiungere `durationMs` soltanto se verificata.
 Catalogo indicizzato una sola volta; duplicati identici segnalati, conflitti editoriali bloccati. Brano sconosciuto: avviso e scanner ancora utilizzabile.
 
-Le durate vengono ottenute dallo SDK e memorizzate per ID in sessionStorage. La preparazione verifica volume zero prima del transfer e del caricamento; mette in pausa, cerca il punto casuale e ne verifica la posizione. Ai round successivi il punto casuale è già nel comando play. Preparazione e countdown lavorano in parallelo; se Spotify tarda appare PREPARAZIONE… . VIA viene aggiornato prima del ripristino del volume, dopo la conferma del movimento al punto corretto. Il timer parte dalla successiva conferma SDK. Nessun metadato SDK modifica il reveal.
+Le durate vengono verificate offline per l'esatto Spotify ID e salvate come `durationMs`. Il runtime calcola l'offset dai soli dati locali, prepara la connessione durante 3-2-1 e invia il primo play direttamente all'offset dopo il countdown. Non esegue precaricamento a zero, mute, pausa/seek/resume preparatori o transfer separati. Se manca la durata locale, il round viene bloccato esplicitamente. Se la connessione o conferma tarda, resta visibile 1; non compaiono scritte intermedie.
 
-Il codice non misura il primo campione audio fisico né l'istante di paint del browser. Su iOS il volume SDK non è controllabile: se il mute non viene confermato il round si interrompe prima del transfer/play. Una traccia troppo corta per lasciare 45 secondi, 2 secondi finali e almeno 1 secondo iniziale viene rifiutata esplicitamente. Dopo un errore di preparazione il device viene ritirato, mantenendo il volume scelto per il player sostitutivo, senza riattivare uno stream ambiguo.
+Il timer parte solo dopo due campioni SDK coerenti con traccia/offset e avanzamento della posizione. La finestra di posizione tiene conto del tempo reale trascorso dall'invio del comando, senza aumentare il timeout. Un 2xx HTTP non basta a dichiarare PLAYING. Il controllo non misura il primo campione audio fisico e non garantisce latenza zero della rete.
+
+Per aggiornare le durate **solo in manutenzione**:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/fetch-durations.ps1
+node scripts/apply-durations.mjs
+```
+
+Il recupero legge l'oggetto strutturato della pagina embed pubblica Spotify, verifica ID e URI esatti e scarta il resto. `duration-verification.json` contiene le evidenze per ID; `duration-report.json` elenca mancanti e anomalie. L'applicazione rifiuta un recupero incompleto e modifica solo durationMs, aggiornando lo stesso campo nelle segnalazioni già note della baseline. Titolo, artista, anno e QR mapping restano invariati. Una verifica fallita lascia la durata mancante; niente valori stimati.
+
+La diagnostica temporanea sul telefono resta visibile sugli errori, con timestamp, round ID e confirmation_started/success/failed/timeout. Non contiene token o payload grezzi. Vedi [report durate e avvio diretto](DURATION_PLAYBACK_REPORT.md).
 
 ## Verifiche
 
