@@ -19,6 +19,7 @@
   let lastDiagnosticRound = null;
   const diagnosticListeners = new Set();
   function record(round, event, details = {}) {
+    if (!config.debug) return;
     const entry = { event, atMs: Date.now(), monotonicMs: performance.now(), ...details };
     if (round.diagnostic.timeline.length >= 250) {
       const sample = round.diagnostic.timeline.findIndex(item => item.event === "state_sample" || item.event === "player_state_changed_received");
@@ -34,6 +35,10 @@
     window.Bamboc.diagnostics("PLAYER", "round_phase", { roundId: round.diagnostic.roundId, phase: name });
   }
   function captureFailure(round, error) {
+    if (!config.debug) {
+      window.Bamboc.diagnostics("PLAYER", "round_failed", { type: error.diagnosticCode || error.code || "Error", status: error.status });
+      return;
+    }
     if (round.diagnostic.failure) return;
     const d = round.diagnostic;
     d.sdkReadyAtFailure = connectionReady; d.devicePresentAtFailure = Boolean(deviceId);
@@ -47,22 +52,17 @@
       type: d.failure.type, status: error.status });
   }
   function publishDiagnostic(round) {
-    if (lastDiagnosticRound !== round) return;
+    if (!config.debug || lastDiagnosticRound !== round) return;
     const snapshot = JSON.parse(JSON.stringify(round.diagnostic));
     for (const callback of diagnosticListeners) callback(snapshot);
   }
   function safeMessage(error) {
-    // Only application-authored messages are shown. Arbitrary SDK rejection text
-    // may contain credentials/URLs and is deliberately not copied to the panel.
+    // Debug snapshots accept only application-authored messages. Arbitrary SDK
+    // rejection text may contain credentials/URLs and is deliberately omitted.
     const message = String(error.message || "");
     if (error.status === 429) return "Troppe richieste Spotify (HTTP 429).";
     const local = error instanceof core.SpotifyError || [
-      "Timeout stato Spotify.", "Timeout regolazione volume Spotify.", "Volume Spotify non verificabile.",
-      "Questo browser non consente una preparazione silenziosa (per esempio iOS). Usa un browser con volume Spotify controllabile.",
-      "Ripristino del volume Spotify non confermato. Riprova SCAN.", "Volume Spotify non disponibile.",
-      "Il volume Spotify è a zero o non disponibile. Alzalo prima di riprovare.", "Timeout caricamento traccia.",
-      "Timeout pausa di preparazione.", "Timeout posizionamento casuale.", "Timeout ripresa Spotify.",
-      "Volume modificato durante la preparazione. Riprova senza usare altri controlli Spotify.",
+      "Timeout stato Spotify.",
       "Traccia troppo breve o durata non valida per un segmento casuale di 45 secondi senza intro.",
       "Arresto fotocamera non confermato.",
     ].includes(message);
@@ -85,7 +85,7 @@
     check(round);
     const name = round.diagnostic.phase;
     record(round, "operation_wait_started", { phase: name });
-    Promise.resolve(operation).then(() => {
+    if (config.debug) Promise.resolve(operation).then(() => {
       record(round, currentRound === round ? "operation_resolved" : "late_operation_resolved", { phase: name });
       window.Bamboc.diagnostics("PLAYER", currentRound === round ? "round_operation_completed" : "late_round_operation_ignored",
         { roundId: round.diagnostic.roundId, phase: name });
@@ -114,8 +114,7 @@
     currentRound = null;
     round.controller.abort(error);
     round.detach();
-    // Never unmute a failed/ambiguous stream. Retire its device and preserve the
-    // user's volume for the replacement player. Late SDK calls target only old.
+    // Retire a failed/ambiguous stream. Late SDK calls target only its old device.
     record(round, "cleanup_disconnect_requested");
     disconnectDevice(error);
     record(round, "cleanup_disconnect_returned");
@@ -198,7 +197,7 @@
         if (instance !== player) return;
         if (currentRound) currentRound.diagnostic.sdkEvent = type;
         const messages = {
-          initialization_error: "Inizializzazione audio protetto Spotify fallita. Controlla DRM e contenuti protetti nella Diagnostica browser.",
+          initialization_error: "Inizializzazione audio protetto Spotify fallita. Verifica che il browser consenta i contenuti protetti e riconnetti Spotify.",
           authentication_error: "Autenticazione del player fallita. Riprova o accedi nuovamente.",
           account_error: "Per giocare serve Spotify Premium e un account autorizzato.",
           playback_error: "Riproduzione Spotify non riuscita. Riprova.",
@@ -316,7 +315,7 @@
     const confirmationPhase = round.diagnostic.phase;
     record(round, "confirmation_started", { phase: confirmationPhase });
     const waiter = waitForState(state => {
-      round.diagnostic.lastState = state ? { present: true, matchesRequestedTrack: matches(state, round.song.id),
+      if (config.debug) round.diagnostic.lastState = state ? { present: true, matchesRequestedTrack: matches(state, round.song.id),
         paused: Boolean(state.paused), loading: Boolean(state.loading),
         positionMs: Number.isFinite(state.position) ? state.position : null,
         durationMs: Number.isFinite(state.duration) ? state.duration : null } : { present: false };
@@ -475,6 +474,7 @@
   auth.onInvalidated(resetSession);
   window.Bamboc.playback = { prepare, activate, play, stop, disconnect, resetSession, isReady, matches, waitForState,
     diagnoseInterruption(state) {
+      if (!config.debug) return;
       if (currentRound?.started) {
         currentRound.diagnostic.lastState = state ? { present: true, paused: Boolean(state.paused),
           matchesRequestedTrack: matches(state, currentRound.song.id) } : { present: false };

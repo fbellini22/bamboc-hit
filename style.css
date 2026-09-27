@@ -139,11 +139,6 @@ button:focus-visible { outline: 3px solid white; outline-offset: 4px; }
 .card-back h2 { font-size: 18px; }
 .card-back p { font-size: 14px; opacity: 0.8; }
 #status { margin: 16px auto 0; padding: 0 12px; max-width: 500px; line-height: 1.5; }
-#playback-diagnostic { margin: 20px auto; padding: 16px; max-width: 600px; text-align: left; background: #20152c; }
-#playback-diagnostic h2 { font-size: 18px; }
-#playback-diagnostic-data { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; user-select: text; }
-#browser-diagnostic { margin: 20px auto; max-width: 600px; text-align: left; padding: 12px; }
-#browser-diagnostic-data { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; user-select: text; }
 @media (max-width: 500px) { .timer-text { font-size: 32px; } }
 @keyframes neon-breathe {
   0%, 100% { text-shadow: 0 0 2px #fff, 0 0 6px #ff7ab8, 0 0 12px #ff3d81, 0 0 20px #ff2a7a; }

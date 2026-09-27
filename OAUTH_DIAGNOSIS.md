@@ -1,5 +1,7 @@
 # Diagnosi OAuth e raccolta del prossimo test reale
 
+> Report storico dell’indagine. La versione finale non espone più i pannelli temporanei qui descritti; vedere [verifica finale](RELEASE_CHECK.md). Il contenuto resta come evidenza delle regressioni e delle decisioni.
+
 Analisi della base locale `a467a4a` (Fix Spotify authentication and player readiness).
 Modifiche diagnostiche locali, senza commit o push. La causa del fallimento nel browser
 di produzione **non è determinabile dal solo codice**. Il sito Pages non è risultato

@@ -32,7 +32,7 @@ node scripts/apply-durations.mjs
 
 Il recupero legge l'oggetto strutturato della pagina embed pubblica Spotify, verifica ID e URI esatti e scarta il resto. `duration-verification.json` contiene le evidenze per ID; `duration-report.json` elenca mancanti e anomalie. L'applicazione rifiuta un recupero incompleto e modifica solo durationMs, aggiornando lo stesso campo nelle segnalazioni già note della baseline. Titolo, artista, anno e QR mapping restano invariati. Una verifica fallita lascia la durata mancante; niente valori stimati.
 
-La diagnostica temporanea sul telefono resta visibile sugli errori, con timestamp, round ID e confirmation_started/success/failed/timeout. Non contiene token o payload grezzi. Vedi [report durate e avvio diretto](DURATION_PLAYBACK_REPORT.md).
+La versione finale non carica pannelli diagnostici, sonde DRM o journal OAuth/browser. Gli errori operativi restano visibili nel normale messaggio di stato. Vedi [verifica finale](RELEASE_CHECK.md) e [report durate e avvio diretto](DURATION_PLAYBACK_REPORT.md).
 
 ## Verifiche
 
@@ -49,7 +49,7 @@ npm run ci
 
 La validazione rigorosa segnala un conflitto esistente nel dataset. La variante CI e `validate:dataset` confrontano ogni anomalia con `data-warnings-baseline.json` e falliscono per anomalie nuove/cambiate; mantengono visibili quelle esistenti. Il confronto ignora numeri di riga e soli spazi esterni, preservando ID e contenuti editoriali. Non rigenerare la baseline senza revisione editoriale.
 
-`?debug=1` abilita tempi relativi in console per preparazione e playback. Nessun token viene stampato.
+Nel normale utilizzo la console conserva solo errori sintetici. `?debug=1` abilita esplicitamente tracce di sviluppo e tempi relativi: non attiva pannelli e non persiste dopo il redirect/reload senza parametro. Nessun token viene stampato. Gli osservatori OAuth/browser sono confinati in `tests/support`, non caricati dalla pagina.
 I test simulano SDK, auth, camera e DOM. Il test fisico Premium/mobile resta necessario.
 
 - [Report tecnico completo](AUDIT_REPORT.md)
@@ -58,4 +58,4 @@ I test simulano SDK, auth, camera e DOM. Il test fisico Premium/mobile resta nec
 
 Le tab sospese possono impedire la pausa puntuale del browser; il countdown recupera il tempo reale trascorso al ritorno.
 
-Per confrontare Android mobile e sito desktop, aprire **Diagnostica browser temporanea** dopo il tentativo. Il controllo manuale DRM non avvia audio né modifica il player. Procedura e limiti: [report countdown e Android](COUNTDOWN_ANDROID_REPORT.md).
+Android/Chrome mobile e iPhone sono stati verificati con successo dall’utente prima della pulizia finale. I report degli audit precedenti sono documentazione storica: le istruzioni per aprire pannelli temporanei non si applicano più alla versione finale. Nessun workaround sito desktop è richiesto dal codice.

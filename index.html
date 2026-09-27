@@ -10,8 +10,6 @@
     <script defer src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     <script defer src="config.js"></script>
     <script defer src="core.js"></script>
-    <script defer src="browser-diagnostics.js"></script>
-    <script defer src="oauth-diagnostics.js"></script>
     <script defer src="spotify-auth.js"></script>
     <script defer src="player.js"></script>
     <script defer src="scanner.js"></script>
@@ -49,23 +47,7 @@
       <button id="connect-btn" class="secondary-btn" type="button" hidden>Riconnetti Spotify</button>
       <button id="logout-btn" class="secondary-btn" type="button" hidden>Esci da Spotify</button>
       <p id="status" role="status" aria-live="polite"></p>
-      <section id="oauth-diagnostic" hidden>
-        <h2>Diagnostica OAuth temporanea</h2>
-        <p>Fotografa questo pannello prima di riprovare il login. Se necessario, scorri per includere tutti gli eventi.</p>
-        <pre id="oauth-diagnostic-data" style="white-space: pre-wrap; overflow-wrap: anywhere; text-align: left; font-size: 12px"></pre>
-      </section>
-      <section id="playback-diagnostic" hidden aria-live="polite">
-        <h2>Diagnostica playback temporanea</h2>
-        <p>In caso di errore, condividi questi dettagli del round.</p>
-        <pre id="playback-diagnostic-data"></pre>
-      </section>
       <noscript>Per giocare devi abilitare JavaScript.</noscript>
-      <details id="browser-diagnostic">
-        <summary>Diagnostica browser temporanea</summary>
-        <p>Per confrontare mobile e sito desktop. Il controllo DRM non avvia audio e non garantisce la riproduzione Spotify.</p>
-        <button id="browser-diagnostic-probe" type="button" class="secondary-btn">Verifica DRM e permesso camera</button>
-        <pre id="browser-diagnostic-data"></pre>
-      </details>
     </main>
   </body>
 </html>

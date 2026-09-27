@@ -1,5 +1,7 @@
 # Correzione della diagnosi dopo il test fisico
 
+> Report storico dell’indagine. La versione finale non espone più i pannelli temporanei qui descritti; vedere [verifica finale](RELEASE_CHECK.md). Il contenuto resta come evidenza delle regressioni e delle decisioni.
+
 > Report storico del passaggio precedente. La scelta della durata locale è stata
 > successivamente implementata: vedi [risultato aggiornato](DURATION_PLAYBACK_REPORT.md).
 

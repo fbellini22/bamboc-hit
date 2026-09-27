@@ -8,7 +8,7 @@ const coreModule = { exports: {} };
 vm.runInNewContext(await readFile(new URL("core.js", root), "utf8"), { module: coreModule, URL, setTimeout, clearTimeout });
 const core = coreModule.exports;
 const sources = Object.fromEntries(await Promise.all(
-  ["config.js", "browser-diagnostics.js", "oauth-diagnostics.js", "spotify-auth.js", "player.js", "scanner.js", "app.js", "song.js"]
+  ["config.js", "tests/support/browser-observer.js", "tests/support/oauth-observer.js", "spotify-auth.js", "player.js", "scanner.js", "app.js", "song.js"]
     .map(async name => [name, await readFile(new URL(name, root), "utf8")])
 ));
 const tests = [];
@@ -37,10 +37,12 @@ function environment(extra = {}) {
   vm.createContext(context);
   vm.runInContext(sources["config.js"], context);
   context.Bamboc.config = { ...context.Bamboc.config, readyTimeoutMs: 80, playbackTimeoutMs: 80,
-    requestTimeoutMs: 80, pollMs: 5 };
+    requestTimeoutMs: 80, pollMs: 5, debug: !extra.production };
   context.Bamboc.core = core;
-  vm.runInContext(sources["browser-diagnostics.js"], context);
-  vm.runInContext(sources["oauth-diagnostics.js"], context);
+  if (!extra.production) {
+    vm.runInContext(sources["tests/support/browser-observer.js"], context);
+    vm.runInContext(sources["tests/support/oauth-observer.js"], context);
+  }
   return context;
 }
 function load(context, file) { vm.runInContext(sources[file], context, {filename:file}); }
@@ -202,7 +204,7 @@ test("callback exchanges code and cleans only OAuth parameters", async () => {
 
 function playerFixture(options = {}) {
   const c = environment({sessionStorage: storage(options.cache ? {"bamboc.spotify.durations.v1": options.cache} : {}),
-    localStorage: storage(options.tokens || {}), fetch: options.fetcher});
+    localStorage: storage(options.tokens || {}), fetch: options.fetcher, production: options.production});
   let instance;
   const calls = [], audio = [], history = [], requests = [], instances = [];
   function record(type, target, extra = {}) {
@@ -419,6 +421,7 @@ async function flush() { for(let i=0;i<30;i++) await Promise.resolve(); }
 function appFixture({clock, preplayMs=0, songs=[song], context, realSession=false} = {}) {
   const elements = new Map(), listeners = {}, docListeners = {}, windowListeners = {};
   function element(id) {
+    if (context?.production && /diagnostic/.test(id)) throw new Error("Removed diagnostic selector: " + id);
     if (!elements.has(id)) elements.set(id,{
       hidden:false,disabled:false,textContent:"",style:{},children:[],isConnected:true,classList:{add(){},toggle(){}},
       attributes:{},addEventListener(type, fn){listeners[id+":"+type]=fn;},setAttribute(key,value){this.attributes[key]=value;},focus(){},
@@ -720,8 +723,9 @@ function sessionFixture(options={}) {
   }
   const cleaned=[];
   player.c.history.replaceState=(_a,_b,value)=>{cleaned.push(value);player.c.location.href=new URL(value,player.c.location.origin).href;};
+  const reports=[];player.api.onDiagnostic(d=>reports.push(d));
   const app=appFixture({context:player.c,realSession:true});
-  return {...app,player,cleaned};
+  return {...app,player,cleaned,reports};
 }
 function assertLoggedOut(f) {
   assert.equal(f.element("login-screen").hidden,false);
@@ -941,6 +945,7 @@ test("OAuth diagnostic: full reload preserves verifier/state and identical produ
       assert.equal(request.body.get("client_id"),"1031669a52cf4742b6e908a536a247e5");
       return response(200,{access_token:"SECRET_ACCESS",refresh_token:"SECRET_REFRESH",expires_in:3600});
     }});
+  b.location.search += "&debug=1";load(b,"config.js");
   b.console.debug=(...args)=>logs.push(args);load(b,"spotify-auth.js");await b.Bamboc.auth.handleRedirect();await b.Bamboc.auth.getToken();
   assert.deepEqual(logs.map(x=>x[0]),["login_start","pkce_created","redirect_start","callback_detected","state_valid","verifier_found",
     "token_exchange_start","token_exchange_success","token_valid"].map(x=>"[BAMBOC AUTH] "+x));
@@ -1004,18 +1009,19 @@ test("OAuth diagnostic: connection failure, ready timeout and missing device hav
     const f=playerFixture(options);await assert.rejects(f.api.prepare(),e=>e.diagnosticCode===type);
   }
 });
-test("OAuth diagnostic: debug opt-in survives reload and debug=0 disables output", ()=>{
-  const shared=storage(),logs=[];
+test("console debug requires URL opt-in; old persisted debug flag cannot enable it", ()=>{
+  const shared=storage({"bamboc.spotify.diagnostics":"1"}),logs=[];
   for(const search of ["?debug=1","","?debug=0",""]){
     const c=environment({sessionStorage:shared,location:{search,hostname:"test",origin:"https://test",pathname:"/"}});
     c.console.debug=(...args)=>logs.push(args);c.Bamboc.diagnostics("AUTH","probe");
   }
-  assert.equal(logs.length,2);
+  assert.equal(logs.length,1);
 });
 
 test("OAuth diagnostic: player logs only safe readiness facts, never device/token/SDK message", async()=>{
   const f=playerFixture(),logs=[];f.c.location.search="?debug=1";load(f.c,"config.js");
   f.c.console.debug=(...args)=>logs.push(args);
+  f.c.console.warn=(...args)=>logs.push(args);
   await f.api.prepare();f.instance.oauthToken(()=>{});await delay(0);
   f.instance.emit("account_error",{message:"SECRET_SDK_MESSAGE"});
   const text=JSON.stringify(logs);
@@ -1057,12 +1063,11 @@ test("mobile diagnostic: direct play HTTP failure retains status, with no transf
  assert.equal(d.transfer.result,"not_required_direct_device");assert.equal(d.playbackCommands[0].httpStatus,403);
  assert.ok(d.playbackCommands[0].positionMs>=1000);
 });
-test("mobile diagnostic: panel survives SDK authentication reset and displays safe round snapshot", async()=>{
+test("SDK authentication reset preserves error evidence and safely logs out", async()=>{
   const gate=defer(),f=sessionFixture({apiGate:gate.promise});await flush();
   f.click("scan-btn");await flush();const pending=f.scan("spotify:track:"+id);await flush();
   f.player.instance.emit("authentication_error",{message:"SECRET_ACCESS_TOKEN SECRET_VERIFIER"});await pending;
-  assert.equal(f.element("playback-diagnostic").hidden,false);
-  const text=f.element("playback-diagnostic-data").textContent,d=JSON.parse(text);
+  const d=f.reports.at(-1),text=JSON.stringify(d);
   assert.equal(d.sdkEvent,"authentication_error");assert.equal(d.failure.type,"SDK_AUTHENTICATION_ERROR");
   assert.equal(text.includes("SECRET"),false);assertLoggedOut(f);gate.resolve();
 });
@@ -1097,9 +1102,9 @@ test("mobile diagnostic: arbitrary playback rejection text is never exposed", as
 test("mobile diagnostic: interruption after successful playback preserves observed pause", async()=>{
   const f=sessionFixture();await flush();f.click("scan-btn");await flush();await f.scan("spotify:track:"+id);
   f.player.setState({...f.player.instance.state,paused:true});await flush();
-  const d=JSON.parse(f.element("playback-diagnostic-data").textContent);
+  const d=f.reports.at(-1);
   assert.equal(d.phase,"playing_confirmed");assert.equal(d.failure.type,"PLAYBACK_INTERRUPTED");
-  assert.equal(d.lastState.paused,true);assert.equal(f.element("playback-diagnostic").hidden,false);
+  assert.equal(d.lastState.paused,true);
 });
 
 test("phone regression: ignored physical mute cannot leak preload because there is no preload", async()=>{
@@ -1174,7 +1179,7 @@ test("confirmation tolerates real elapsed playback instead of a fixed start wind
 test("UI never declares PLAYING from HTTP success without measured position progression", async()=>{
   const f=sessionFixture({stalled:true});await flush();f.click("scan-btn");await flush();await f.scan("spotify:track:"+id);
   assert.equal(f.element("timer").hidden,true);assert.equal(f.element("reveal-btn").disabled,true);
-  const report=JSON.parse(f.element("playback-diagnostic-data").textContent);
+  const report=f.reports.at(-1);
   assert.equal(report.playbackCommands[0].result,"success");assert.equal(report.failure.confirmationTimeout,true);
 });
 
@@ -1248,7 +1253,7 @@ test("browser diagnostics compare actual feature probes with mobile/desktop hint
 });
 test("browser diagnostics expose connect failure before READY without needing a round", async()=>{
   const f=sessionFixture({connectFalse:true});await flush();
-  const d=JSON.parse(f.element("browser-diagnostic-data").textContent);
+  const d=f.c.Bamboc.browserDiagnostics.snapshot();
   assert.equal(d.connectResult,false);assert.ok(d.events.some(e=>e.type==="PLAYER_CONNECT_FAILED"));
   assert.equal(f.element("scan-btn").disabled,true);assert.equal(f.player.requests.length,0);
 });
@@ -1350,16 +1355,12 @@ test("OAuth mobile: separate empty tab storage cannot recover attempt or verifie
   assert.notEqual(second.diagnosticAttemptId,first.diagnosticAttemptId);
   assert.ok(oauthEvents(b).some(e=>e.type==="PKCE_VERIFIER_MISSING"));
 });
-test("OAuth mobile: failure panel survives auth reset and reload without debug opt-in", async()=>{
+test("OAuth mobile: invalid callback remains logged out after reset and reload", async()=>{
   const f=sessionFixture({callback:"https://test.example/game/?code=c&state=s"});await flush();
-  assert.equal(f.element("oauth-diagnostic").hidden,false);
-  assert.match(f.element("oauth-diagnostic-data").textContent,/PKCE_VERIFIER_MISSING/);
-  f.c.Bamboc.auth.clear();assert.equal(f.element("oauth-diagnostic").hidden,false);
-  const next=environment({sessionStorage:f.c.sessionStorage,document:f.c.document});
-  next.Bamboc.oauthDiagnostics.mount();
-  assert.equal(f.element("oauth-diagnostic").hidden,false);
-  assert.match(f.element("oauth-diagnostic-data").textContent,/PKCE_VERIFIER_MISSING/);
-  assert.equal(f.player.instances.length,0);
+  assertLoggedOut(f);assert.match(f.element("status").textContent,/Login non valido o scaduto/);
+  f.c.Bamboc.auth.clear();assertLoggedOut(f);
+  const next=sessionFixture({tokens:{}});await flush();assertLoggedOut(next);
+  assert.equal(f.player.instances.length,0);assert.equal(next.player.instances.length,0);
 });
 test("OAuth mobile: real UI serializes boot callback, ignores double login tap and waits before SDK", async()=>{
   const gate=defer();let requests=0;
@@ -1443,6 +1444,82 @@ test("OAuth mobile: diagnostic storage failure never interrupts login or hides i
   c.location.href="https://test.example/game/?code=c&state=wrong";
   await assert.rejects(c.Bamboc.auth.handleRedirect());
   const d=c.Bamboc.oauthDiagnostics.snapshot();assert.equal(d.storageWritable,false);assert.equal(d.failed,true);
+});
+
+test("release: HTML loads no diagnostic observer, panel, JSON dump or DRM probe", async()=>{
+  const html=await readFile(new URL("index.html",root),"utf8");
+  assert.doesNotMatch(html,/diagnostic|observer|Verifica DRM|<pre\b|tests\/support/i);
+  const css=await readFile(new URL("style.css",root),"utf8");
+  assert.doesNotMatch(css,/diagnostic/);
+  for(const [,file] of html.matchAll(/src="([^":]+\.js)"/g))assert.ok(file==="core.js"||sources[file],file);
+});
+test("release: normal mode runs QR/countdown/direct offset/confirmation/reveal/next without observers", async()=>{
+  const clock=fakeClock(),gate=defer();
+  const player=playerFixture({production:true,realAuth:true,tokens:savedSession(),apiGate:gate.promise});
+  const f=appFixture({clock,context:player.c,realSession:true,preplayMs:3000});await flush();
+  assert.equal(f.c.Bamboc.config.debug,false);
+  assert.equal(f.c.Bamboc.oauthDiagnostics,undefined);assert.equal(f.c.Bamboc.browserDiagnostics,undefined);
+  const reports=[],writes=[],statuses=[];player.api.onDiagnostic(d=>reports.push(d));
+  Object.defineProperty(f.element("preplay-count"),"textContent",{set:value=>writes.push(value)});
+  Object.defineProperty(f.element("status"),"textContent",{set:value=>statuses.push(value)});
+  f.c.performance={now:()=>{throw Error("Unexpected diagnostic clock sampling");}};
+  for(const key of ["userAgent","userAgentData","requestMediaKeySystemAccess","permissions"])
+    Object.defineProperty(f.c.navigator,key,{get(){throw Error("Unexpected browser environment probe");}});
+  f.click("scan-btn");await flush();const pending=f.scan("spotify:track:"+id);await flush();
+  for(let i=0;i<3;i++){assert.equal(player.requests.length,0);assert.equal(player.audio.length,0);await clock.advance(1000);}
+  assert.deepEqual(writes,["3","2","1"]);assert.equal(f.element("preplay").hidden,true);
+  assert.equal(f.element("timer").hidden,true);assert.equal(player.requests.length,1);
+  const request=player.requests[0];assert.match(request.path,/\/me\/player\/play\?device_id=/);
+  assert.ok(request.body.position_ms>=1000&&request.body.position_ms<=song.durationMs-47000);
+  assert.deepEqual(plain(request.body.uris),["spotify:track:"+id]);
+  assert.equal(player.calls.includes("seek"),false);assert.equal(player.calls.includes("pause"),false);
+  await clock.advance(1000);assert.deepEqual(writes,["3","2","1"]);assert.equal(f.element("timer").hidden,true);
+  gate.resolve();await pending;assert.equal(f.element("countdown").textContent,"45");
+  assert.equal(f.element("timer").hidden,false);assert.equal(reports.length,0);
+  assert.ok(f.calls.indexOf("camera stop")>=0);
+  f.click("reveal-btn");await flush();
+  const back=f.element("result").children[0].children[1];
+  assert.deepEqual(back.children.map(x=>x.textContent),[song.title,song.artist,song.year]);
+  assert.ok(player.calls.includes("pause"));f.click("reset-btn");await flush();
+  assert.equal(f.element("scanner-container").hidden,false);
+  f.click("cancel-btn");await flush();f.pagehide();
+  assert.equal(statuses.some(s=>/Preparazione|^VIA$/.test(s)),false);
+  assert.equal(player.requests.some(r=>/\/tracks\//.test(r.path)),false);
+});
+test("release: real auth callback succeeds without observer or diagnostic storage writes", async()=>{
+  const f=sessionFixture({production:true,tokens:{},callback:"https://test.example/game/?code=c&state=s",
+    pkce:{verifier:"v",state:"s",createdAt:Date.now()},
+    fetcher:async()=>response(200,{access_token:"a",refresh_token:"r",expires_in:3600})});await flush();
+  assert.equal(f.element("scan-btn").disabled,false);assert.equal(f.player.api.isReady(),true);
+  assert.equal(f.c.sessionStorage.getItem("bamboc.oauth.diagnostic.v1"),null);
+  assert.equal(f.c.sessionStorage.getItem("bamboc.spotify.diagnostics"),null);
+  f.click("logout-btn");await flush();assertLoggedOut(f);
+});
+test("release: invalid callback and SDK errors keep explicit UX with no diagnostic dependency", async()=>{
+  const bad=sessionFixture({production:true,callback:"https://test.example/game/?code=c&state=s"});await flush();
+  assertLoggedOut(bad);assert.match(bad.element("status").textContent,/Login non valido o scaduto/);
+  assert.equal(bad.player.instances.length,0);
+  const f=sessionFixture({production:true});await flush();
+  f.player.instance.emit("initialization_error",{message:"SECRET_SDK"});await flush();
+  assert.equal(f.element("scan-btn").disabled,true);
+  assert.match(f.element("status").textContent,/contenuti protetti/);
+  assert.doesNotMatch(f.element("status").textContent,/Diagnostica|SECRET/);f.pagehide();
+});
+test("release: missing local duration and HTTP failure still reject without publishing debug snapshots", async()=>{
+  const f=playerFixture({production:true}),reports=[];f.api.onDiagnostic(d=>reports.push(d));
+  await assert.rejects(f.api.play({...song,durationMs:undefined}),e=>e.code==="LOCAL_DURATION_MISSING");
+  assert.equal(f.requests.length,0);assert.equal(reports.length,0);
+  const g=playerFixture({production:true,realAuth:true,tokens:savedSession(),fetcher:async()=>response(403)});
+  await assert.rejects(g.api.play(song),e=>e.status===403);
+  assert.equal(g.instance.disconnected,true);
+});
+test("release: production logging retains safe error codes/status only and drops payloads", ()=>{
+  const logs=[],c=environment({production:true,console:{warn:(...args)=>logs.push(args),debug:()=>{throw Error("verbose log");}}});
+  c.Bamboc.diagnostics("AUTH","token_valid",{access_token:"SECRET_TOKEN"});
+  c.Bamboc.diagnostics("AUTH","error",{phase:"token_exchange",type:"TOKEN_EXCHANGE_400",status:400,
+    access_token:"SECRET_TOKEN",refresh_token:"SECRET_REFRESH",code:"SECRET_CODE",verifier:"SECRET_VERIFIER",message:"SECRET_MESSAGE"});
+  assert.equal(logs.length,1);assert.equal(logs[0][1].status,400);
+  assert.equal(JSON.stringify(logs).includes("SECRET"),false);
 });
 
 let failures=0;

@@ -4,15 +4,8 @@
   const catalog = core.createCatalog(window.SONGS);
   let round = new core.RoundState();
   const el = id => document.getElementById(id);
-  el("playback-diagnostic").hidden = true;
-  playback.onDiagnostic?.(snapshot => {
-    el("playback-diagnostic-data").textContent = JSON.stringify(snapshot, null, 2);
-    el("playback-diagnostic").hidden = false;
-  });
   let song = null, startedAt = 0, frame = null, deadlineTimer = null;
   let countdownVisible = false, lastCountdownNumber = null;
-  window.Bamboc.browserDiagnostics?.mount();
-  window.Bamboc.oauthDiagnostics?.mount();
   let cameraStopped = Promise.resolve(), revealAfterStop = false;
   let spotifyState = "AUTH_REQUIRED", sessionId = 0, connecting = null;
   let roundId = 0, controller = null, leaving = false;
@@ -105,6 +98,7 @@
     if (connecting === operation) { connecting = null; render(); }
   }
   function traceRound() {
+    if (!config.debug) return () => {};
     const start = performance.now();
     return label => {
       if (config.debug) console.debug("[Bamboc performance]", label, Math.round(performance.now() - start) + "ms");
@@ -158,7 +152,7 @@
     }
     const trace = traceRound();
     trace("scan detected");
-    const timeline = [{ event: "qr_recognized", atMs: Date.now(), monotonicMs: performance.now() }];
+    const timeline = config.debug ? [{ event: "qr_recognized", atMs: Date.now(), monotonicMs: performance.now() }] : [];
     const trackId = core.extractTrackId(text);
     if (!trackId) { message("QR non valido: serve un URL o URI Spotify di una traccia."); return false; }
     if (catalog.isConflict(trackId)) { message("ID ambiguo nel database: occorre correggere le voci duplicate."); return false; }
@@ -167,7 +161,6 @@
     if (!found) { message("Canzone non presente nel database o voce non valida."); return false; }
     const id = ++roundId;
     controller = new AbortController();
-    el("playback-diagnostic").hidden = true;
     const signal = controller.signal;
     song = found;
     countdownVisible = true; lastCountdownNumber = null;
@@ -176,13 +169,13 @@
     if (navigator.vibrate) navigator.vibrate(60);
     cameraStopped = scanner.stop();
     window.Bamboc.browserDiagnostics?.event("camera_stop_requested", { roundId: id });
-    cameraStopped.then(() => window.Bamboc.browserDiagnostics?.event("camera_stopped", { roundId: id }),
+    if (window.Bamboc.browserDiagnostics) cameraStopped.then(() => window.Bamboc.browserDiagnostics?.event("camera_stopped", { roundId: id }),
       () => window.Bamboc.browserDiagnostics?.event("camera_stop_failed", { roundId: id }));
     cameraStopped.catch(() => {}); // Cleanup errors are handled by finish(), not leaked.
     const countdown = core.preplayCountdown(config.preplayMs, seconds => {
       if (id !== roundId || round.phase !== "preparing") return;
       const number = el("preplay-count");
-      timeline.push({ event: seconds ? "countdown_" + seconds : "countdown_elapsed", atMs: Date.now(), monotonicMs: performance.now() });
+      if (config.debug) timeline.push({ event: seconds ? "countdown_" + seconds : "countdown_elapsed", atMs: Date.now(), monotonicMs: performance.now() });
       if (!seconds) {
         countdownVisible = false;
         el("preplay").hidden = true;
@@ -202,7 +195,7 @@
       if (id !== roundId || signal.aborted || leaving) return true;
       move("playing");
       window.Bamboc.browserDiagnostics?.event("playback_confirmed", { roundId: id });
-      timeline.push({ event: "ui_playing", atMs: Date.now(), monotonicMs: performance.now() });
+      if (config.debug) timeline.push({ event: "ui_playing", atMs: Date.now(), monotonicMs: performance.now() });
       message("Indovina titolo, artista e anno!");
       tick();
       if (round.phase === "playing")

@@ -1,5 +1,7 @@
 # Countdown e confronto Android mobile / sito desktop
 
+> Report storico dell’indagine. La versione finale non espone più i pannelli temporanei qui descritti; vedere [verifica finale](RELEASE_CHECK.md). Il contenuto resta come evidenza delle regressioni e delle decisioni.
+
 ## 1. Causa e correzione del secondo 1
 
 `core.preplayCountdown` termina chiamando la callback con zero. In `app.js/onScan`,

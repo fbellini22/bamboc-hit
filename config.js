@@ -13,21 +13,17 @@ window.Bamboc.config = Object.freeze({
   refreshMarginMs: 60000,
   debug: new URLSearchParams(location.search).get("debug") === "1",
 });
-// Keep diagnostic opt-in across Spotify's redirect (whose URI has no query).
+// Errors remain actionable; detailed console traces require an explicit URL opt-in.
 window.Bamboc.diagnostics = (() => {
-  const key = "bamboc.spotify.diagnostics";
-  let enabled = window.Bamboc.config.debug;
-  try {
-    if (new URLSearchParams(location.search).get("debug") === "0") sessionStorage.removeItem(key);
-    else if (enabled) sessionStorage.setItem(key, "1");
-    enabled = enabled || sessionStorage.getItem(key) === "1";
-  } catch { /* Diagnostics must not affect authentication. */ }
+  const enabled = window.Bamboc.config.debug;
   return (area, event, details = {}) => {
-    if (!enabled) return;
+    const important = event === "error" || event === "round_failed";
+    if (!enabled && !important) return;
     // No Error objects, URLs, response bodies, SDK messages or credentials.
     const safe = { version: "oauth-diag-1" };
     for (const key of ["phase", "type", "status", "present", "ok", "clientId", "redirectUri", "roundId", "atMs", "monotonicMs"])
       if (["string", "number", "boolean"].includes(typeof details[key])) safe[key] = details[key];
-    console.debug("[BAMBOC " + area + "] " + event, safe);
+    const output = important ? console.warn : console.debug;
+    output.call(console, "[BAMBOC " + area + "] " + event, safe);
   };
 })();

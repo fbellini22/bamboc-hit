@@ -1,12 +1,12 @@
 "use strict";
 (() => {
-  // Observational only: no UA-based playback branches, media sessions or audio
-  // contexts are created. DRM probing runs only on an explicit diagnostic click.
+  // Test-only observer; never loaded by index.html. No UA-based playback branches, media sessions or audio
+  // contexts are created. Capability probing runs only when a test calls probe().
   const state = { version: "browser-diag-1", sdkLoaded: false, connectResult: null,
     ready: false, deviceIdPresent: false, activateElement: "not_called",
     transfer: "not_used_direct_device", keySystem: { name: "com.widevine.alpha", result: "not_tested" },
     cameraPermission: "not_queried", events: [] };
-  let mounted = false, probing = null;
+  let probing = null;
   const n = () => window.navigator || {};
   const safeError = error => ["NotSupportedError", "NotAllowedError", "SecurityError", "TypeError", "AbortError"]
     .includes(error?.name) ? error.name : "Error";
@@ -42,10 +42,6 @@
       policy: { encryptedMedia: allowed("encrypted-media"), autoplay: allowed("autoplay"), camera: allowed("camera") } };
   }
   function snapshot() { return JSON.parse(JSON.stringify({ ...state, environment: environment() })); }
-  function render() {
-    const output = document.getElementById?.("browser-diagnostic-data");
-    if (output) output.textContent = JSON.stringify(snapshot(), null, 2);
-  }
   function event(name, details = {}) {
     const entry = { event: name, atMs: Date.now(), environment: environment() };
     for (const key of ["type", "status", "ok", "present", "phase", "roundId"])
@@ -61,13 +57,13 @@
     }
     if (name.startsWith("activate_")) state.activateElement = name.slice(9);
     state.events.push(entry); if (state.events.length > 80) state.events.shift();
-    render();
+   
   }
   function probe() {
     if (probing) return probing;
     probing = (async () => {
       const nav = n();
-      state.keySystem.result = "pending"; render();
+      state.keySystem.result = "pending";
       delete state.keySystem.errorName;
       if (typeof nav.requestMediaKeySystemAccess !== "function") state.keySystem.result = "EME_API_missing";
       else {
@@ -97,13 +93,5 @@
     })().finally(() => { probing = null; });
     return probing;
   }
-  function mount() {
-    if (mounted) return; mounted = true;
-    document.getElementById?.("browser-diagnostic-probe")?.addEventListener("click", () => { void probe(); });
-    document.addEventListener?.("visibilitychange", () => event("visibility_changed"));
-    window.addEventListener?.("focus", () => event("focus"));
-    window.addEventListener?.("blur", () => event("blur"));
-    event("diagnostics_mounted");
-  }
-  window.Bamboc.browserDiagnostics = { event, snapshot, probe, mount };
+  window.Bamboc.browserDiagnostics = { event, snapshot, probe };
 })();

@@ -1,6 +1,6 @@
 "use strict";
 (() => {
-  // Temporary, observation-only journal. Never accept URLs, credentials or raw errors.
+  // Test-only observer; never loaded by index.html. Never accept URLs, credentials or raw errors.
   const key = "bamboc.oauth.diagnostic.v1";
   const events = new Set(("boot auth_loaded login_start pkce_created redirect_start callback_detected " +
     "callback_enter callback_exit callback_absent callback_already_consumed callback_overlap " +
@@ -15,7 +15,7 @@
   const validId = value => typeof value === "string" && /^d-[a-z0-9]+-[a-z0-9]{1,12}$/.test(value);
   const bootId = newId();
   let attemptId = null, rows = [], failed = false, recovered = false, storageWritable = true;
-  let mounted = false, bootCount = 0;
+  let bootCount = 0;
   function sanitize(row) {
     if (!row || !events.has(row.event) || !Number.isFinite(row.at) || Math.abs(row.at) > 8640000000000000) return null;
     const safe = { event: row.event };
@@ -40,17 +40,6 @@
     return { version: "oauth-mobile-1", bootId, attemptId, recovered, storageWritable, failed,
       events: rows.map(row => ({ ...row })) };
   }
-  function render() {
-    if (!mounted) return;
-    const panel = document.getElementById("oauth-diagnostic");
-    const output = document.getElementById("oauth-diagnostic-data");
-    if (!panel || !output) return;
-    panel.hidden = !failed;
-    // One event per wrapped line keeps a phone screenshot readable.
-    output.textContent = JSON.stringify({ ...snapshot(), events: undefined }, null, 2) + "\n" +
-      rows.map(row => new Date(row.at).toISOString() + " " + row.event + " " +
-        JSON.stringify({ ...row, at: undefined, event: undefined })).join("\n");
-  }
   function event(name, details = {}) {
     const row = sanitize({ ...details, event: name, at: Date.now(), bootId,
       attemptId: details.attemptId === undefined ? attemptId : details.attemptId });
@@ -59,13 +48,11 @@
     if (name === "error" && row.type !== "TOKEN_EXPIRED" || name.endsWith("_failure")) failed = true;
     try { sessionStorage.setItem(key, JSON.stringify({ rows, failed, attemptId })); }
     catch { storageWritable = false; }
-    render();
   }
   window.Bamboc.oauthDiagnostics = {
     event, snapshot,
     begin() { attemptId = newId(); return attemptId; },
     adopt(id) { attemptId = validId(id) ? id : null; },
-    mount() { mounted = true; render(); },
     boot() { event("boot", { bootCount: ++bootCount,
       sameOrigin: new URL(location.href).origin === new URL(window.Bamboc.config.redirectUri).origin,
       opener: Boolean(window.opener) }); },
