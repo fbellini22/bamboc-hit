@@ -32,7 +32,6 @@
     el("timer").hidden = phase !== "playing";
     el("reveal-btn").hidden = phase !== "playing";
     el("reveal-btn").disabled = phase !== "playing";
-    el("go-label").hidden = true;
     el("reset-btn").hidden = !["revealed", "stopping", "stop-error"].includes(phase);
     el("reset-btn").disabled = phase === "stopping" || (phase === "revealed" && !canScan());
     el("reset-btn").textContent = phase === "stop-error" ? "RIPROVA STOP"
@@ -329,7 +328,7 @@
     window.Bamboc.oauthDiagnostics?.boot();
     render();
     if (catalog.issues.length) {
-      console.warn("Bamboc-Hit: " + catalog.issues.length + " segnalazioni dataset. Vedi DATASET_AUDIT.md.");
+      console.warn("Bamboc-Hit: " + catalog.issues.length + " segnalazioni dataset. Vedi docs/DATASET_AUDIT.md.");
       if (config.debug) console.table(catalog.issues);
     }
     await connectSpotify(true);

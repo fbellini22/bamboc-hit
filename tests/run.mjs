@@ -649,7 +649,7 @@ test("fast preparation waits 3-2-1; reveal and timer stay disabled", async () =>
     f.click("reveal-btn");await clock.advance(1000);
   }
   await pending;assert.equal(f.element("countdown").textContent,"45");
-  assert.equal(f.element("go-label").hidden,true);f.click("reveal-btn");await flush();
+  f.click("reveal-btn");await flush();
   assert.equal(clock.pending,0);
 });
 test("slow preparation hides countdown after 1 until playback confirmed", async () => {
@@ -657,7 +657,7 @@ test("slow preparation hides countdown after 1 until playback confirmed", async 
   f.setPlay(gate.promise);f.click("scan-btn");await flush();const pending=f.scan("spotify:track:"+id);
   await clock.advance(3000);assert.equal(f.element("preplay-count").textContent,"1");
   assert.equal(f.element("preplay").hidden,true);
-  assert.equal(f.element("go-label").hidden,true);assert.equal(f.element("timer").hidden,true);
+  assert.equal(f.element("timer").hidden,true);
   gate.resolve(null);await pending;assert.equal(f.element("countdown").textContent,"45");
   f.click("reveal-btn");await flush();assert.equal(clock.pending,0);
 });
@@ -1119,9 +1119,9 @@ test("visible countdown contains only 3,2,1 while delayed setup remains pending"
   f.setPlay(gate.promise);f.click("scan-btn");await flush();const pending=f.scan("spotify:track:"+id);await flush();
   const visible=[];
   for(let i=0;i<5;i++){if(!f.element("preplay").hidden)visible.push(f.element("preplay-count").textContent);await clock.advance(1000);}
-  assert.deepEqual(visible,["3","2","1"]);assert.equal(f.element("go-label").hidden,true);
+  assert.deepEqual(visible,["3","2","1"]);
   assert.equal(f.element("timer").hidden,true);gate.resolve(null);await pending;
-  assert.equal(f.element("go-label").hidden,true);assert.equal(f.element("preplay").hidden,true);
+  assert.equal(f.element("preplay").hidden,true);
   f.click("reveal-btn");await flush();
 });
 
@@ -1200,7 +1200,7 @@ test("real app/player: QR countdown then one direct start; reveal keeps editoria
     assert.equal(player.audio.length,0);await clock.advance(1000);}
   await pending;assert.deepEqual(visible,["3","2","1"]);assert.equal(player.requests.length,1);
   assert.ok(player.requests[0].body.position_ms>=1000);assert.equal(f.element("timer").hidden,false);
-  assert.equal(f.element("go-label").hidden,true);f.click("reveal-btn");await flush();
+  f.click("reveal-btn");await flush();
   const back=f.element("result").children[0].children[1];
   assert.deepEqual(back.children.map(x=>x.textContent),[song.title,song.artist,song.year]);
 });
@@ -1534,15 +1534,14 @@ test("visual redesign preserves unique functional DOM hooks and script order", a
   const ids=[...html.matchAll(/\bid="([^"]+)"/g)].map(m=>m[1]);
   assert.equal(ids.length,new Set(ids).size);
   for(const hook of ["login-screen","login-btn","game-screen","scan-btn","scanner-container","reader",
-    "cancel-btn","preplay","preplay-count","go-label","timer","progress-ring-circle","countdown",
+    "cancel-btn","preplay","preplay-count","timer","progress-ring-circle","countdown",
     "reveal-btn","result","reset-btn","connect-btn","logout-btn","status"])
     assert.ok(ids.includes(hook),hook);
   assert.deepEqual([...html.matchAll(/<script defer src="([^"]+)"/g)].map(m=>m[1]),[
     "https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js","config.js","core.js","spotify-auth.js",
     "player.js","scanner.js","song.js","app.js"]);
   assert.match(html,/id="result"[^>]*aria-live="polite"[^>]*hidden/);
-  assert.match(html,/id="go-label"[^>]*hidden><\/div>/);
-  assert.doesNotMatch(html,/>\s*(?:Preparazione(?:\.{3}|…)?|VIA)\s*</);
+  assert.doesNotMatch(html,/>\s*(?:Preparazione(?:\.{3}|…)?|VIA|GO)\s*</);
 });
 test("visual redesign keeps hidden authoritative, reduced motion, safe areas and unchanged ring geometry", async()=>{
   const css=await readFile(new URL("style.css",root),"utf8");

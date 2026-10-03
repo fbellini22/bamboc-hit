@@ -416,7 +416,7 @@
         localDurationMs: Number.isFinite(song.durationMs) ? song.durationMs : null,
         localDurationValid: Number.isSafeInteger(song.durationMs) && song.durationMs > 0,
         transfer: { result: "not_attempted" }, playbackCommands: [], sdkEvent: null, timeline },
-      instance: null, device: null, started: false, position: null, volume: desiredVolume };
+      instance: null, device: null, started: false, position: null };
     const abort = () => abandon(round, signal.reason || new Error("Round annullato."));
     round.detach = () => signal?.removeEventListener("abort", abort);
     lastDiagnosticRound = null;
