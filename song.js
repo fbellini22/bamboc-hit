@@ -4,14 +4,14 @@ window.SONGS = [
     durationMs: 137853,
     title: "24.000 Baci",
     artist: "Adriano Celentano",
-    year: "1963",
+    year: "1961",
   },
   {
     id: "3yGyWqmw9eCQPdJJ6iJLWs",
     durationMs: 222634,
     title: "4/3/1943",
     artist: "Lucio Dalla",
-    year: "1970",
+    year: "1971",
   },
   {
     id: "3q3hFN65AWi7IjVwxN6juk",
@@ -53,7 +53,7 @@ window.SONGS = [
     durationMs: 214421,
     title: "Acqua azzurra, acqua chiara",
     artist: "Lucio Battisti",
-    year: "1970",
+    year: "1969",
   },
   {
     id: "1e4ZMHWU3wxRzeDtfITbhT",
@@ -74,7 +74,7 @@ window.SONGS = [
     durationMs: 254677,
     title: "Ad esempio a me piace il sud",
     artist: "Rino Gaetano",
-    year: "1973",
+    year: "1974",
   },
   {
     id: "6sKdsm15cungJazNyWHdOE",
@@ -116,7 +116,7 @@ window.SONGS = [
     durationMs: 119837,
     title: "All Shook Up",
     artist: "Elvis Presley",
-    year: "1958",
+    year: "1957",
   },
   {
     id: "3cfOd4CMv2snFaKAnMdnvK",
@@ -263,14 +263,14 @@ window.SONGS = [
     durationMs: 168000,
     title: "Bando",
     artist: "ANNA",
-    year: "2022",
+    year: "2020",
   },
   {
     id: "5pYlc1vQ6999WU43WzF4SR",
     durationMs: 194531,
     title: "Barbra Streisand",
     artist: "Duck Sauce",
-    year: "2011",
+    year: "2010",
   },
   {
     id: "7laNkNLlUbNslPAi8HB1IS",
@@ -315,8 +315,8 @@ window.SONGS = [
     year: "1967",
   },
   {
-    id: "515XcapFOMtOOiGU31UqNp",
-    durationMs: 220640,
+    id: "4u7EnebtmKWzUH433cf5Qv",
+    durationMs: 354320,
     title: "Bohemian Rhapsody",
     artist: "Queen",
     year: "1975",
@@ -451,7 +451,7 @@ window.SONGS = [
     id: "4OGzwKPn6H5eR6QkAIoIdo",
     durationMs: 198600,
     title: "Chitarratella",
-    artist: "Carlo Bruti",
+    artist: "Carlo Buti",
     year: "1938",
   },
   {
@@ -459,7 +459,7 @@ window.SONGS = [
     durationMs: 184093,
     title: "Ciao amore, ciao",
     artist: "Luigi Tenco",
-    year: "1959",
+    year: "1967",
   },
   {
     id: "5zB92i6HcCHvVcX5NvGFQb",
@@ -585,14 +585,14 @@ window.SONGS = [
     durationMs: 173693,
     title: "Django",
     artist: "Luis Bacalov;Rocky Roberts",
-    year: "1985",
+    year: "1966",
   },
   {
     id: "1DFFUsN49AUonUcTiQNnjI",
     durationMs: 297786,
     title: "Dolcenera",
     artist: "Fabrizio De André",
-    year: "1995",
+    year: "1996",
   },
   {
     id: "010XyBVMoKsb9lUqEMImak",
@@ -718,7 +718,7 @@ window.SONGS = [
     durationMs: 213333,
     title: "Freed From Desire",
     artist: "Gala;Molella;Phil Jay",
-    year: "1997",
+    year: "1996",
   },
   {
     id: "18NBoQ9SyURVcsPW6sP8tv",
@@ -732,7 +732,7 @@ window.SONGS = [
     durationMs: 238586,
     title: "Funkytown",
     artist: "Lipps Inc",
-    year: "1980",
+    year: "1979",
   },
   {
     id: "2oBXn8htpoyjRqrkIGGm0a",
@@ -868,8 +868,8 @@ window.SONGS = [
     year: "2022",
   },
   {
-    id: "4zGBAwjlJ0TP02mHH8Wpmo",
-    durationMs: 169026,
+    id: "2Cdvbe2G4hZsnhNMKyGrie",
+    durationMs: 175173,
     title: "I Love Rock N Roll",
     artist: "Joan Jett & the Blackhearts",
     year: "1981",
@@ -942,7 +942,7 @@ window.SONGS = [
     durationMs: 140173,
     title: "Il pescatore",
     artist: "Fabrizio De André",
-    year: "1968",
+    year: "1970",
   },
   {
     id: "5Fc7LXJHo8G333kXJRzKC7",
@@ -1145,7 +1145,7 @@ window.SONGS = [
     durationMs: 181000,
     title: "La Coppia Più Bella Del Mondo",
     artist: "Adriano Celentano",
-    year: "1968",
+    year: "1967",
   },
   {
     id: "2T2t1DXwzdilKF3BQPHREo",
@@ -1166,7 +1166,7 @@ window.SONGS = [
     durationMs: 181893,
     title: "La guerra di Piero",
     artist: "Fabrizio De André",
-    year: "1966",
+    year: "1964",
   },
   {
     id: "6r8k1vznHrzlEKYxL4dZEe",
@@ -1236,7 +1236,7 @@ window.SONGS = [
     durationMs: 135400,
     title: "La Partita Di Pallone",
     artist: "Rita Pavone",
-    year: "1963",
+    year: "1962",
   },
   {
     id: "4NdxkvCNQnb4w56Ytq8y8O",
@@ -1362,7 +1362,7 @@ window.SONGS = [
     durationMs: 262456,
     title: "Ma quale idea",
     artist: "Pino D'Angiò",
-    year: "1981",
+    year: "1980",
   },
   {
     id: "0xRDqhYsCW6F9LM4s7gY5z",
@@ -1404,7 +1404,7 @@ window.SONGS = [
     durationMs: 277920,
     title: "Mare mare",
     artist: "Luca Carboni",
-    year: "1991",
+    year: "1992",
   },
   {
     id: "6b37xrsNCWYIUphFBazqD6",
@@ -1460,7 +1460,7 @@ window.SONGS = [
     durationMs: 259586,
     title: "Mi vendo",
     artist: "Renato Zero",
-    year: "1978",
+    year: "1977",
   },
   {
     id: "34E4gEdUXC7chzXMVkTyks",
@@ -1523,7 +1523,7 @@ window.SONGS = [
     durationMs: 291440,
     title: "Morena mía",
     artist: "Miguel Bosé",
-    year: "2002",
+    year: "2001",
   },
   {
     id: "4UzVcXufOhGUwF56HT7b8M",
@@ -1635,7 +1635,7 @@ window.SONGS = [
     durationMs: 228986,
     title: "Oggi Sono Io",
     artist: "Alex Britti",
-    year: "1998",
+    year: "1999",
   },
   {
     id: "5xsIlITnePRLpwbGDDRDLl",
@@ -1649,7 +1649,7 @@ window.SONGS = [
     durationMs: 320357,
     title: "One More Time",
     artist: "Daft Punk",
-    year: "2001",
+    year: "2000",
   },
   {
     id: "64BbK9SFKH2jk86U3dGj2P",
@@ -1740,7 +1740,7 @@ window.SONGS = [
     durationMs: 190615,
     title: "Pompo Nelle Casse",
     artist: "Power Francers",
-    year: "2012",
+    year: "2010",
   },
   {
     id: "2fTsFCKRFQ5M0igJgabnLA",
@@ -1754,7 +1754,7 @@ window.SONGS = [
     durationMs: 229200,
     title: "Prisencolinensinainciusol",
     artist: "Adriano Celentano",
-    year: "1973",
+    year: "1972",
   },
   {
     id: "2pKsnZaXSTmGQKPAkPuJfv",
@@ -1768,21 +1768,21 @@ window.SONGS = [
     durationMs: 168093,
     title: "Quando, Quando, Quando",
     artist: "Tony Renis",
-    year: "1963",
+    year: "1962",
   },
   {
     id: "7zelsfhR5SxQRSTXsjatoW",
     durationMs: 166200,
     title: "Quant'è bello lu primmo ammore",
     artist: "Tony Santagata",
-    year: "1974",
+    year: "1964",
   },
   {
     id: "0Oj0nsrBu8YrJdR84VWJV0",
     durationMs: 178306,
     title: "Quarantaquattro gatti",
     artist: "Piccolo Coro dell'Antoniano;Zecchino d'Oro",
-    year: "1996",
+    year: "1968",
   },
   {
     id: "0x3reuFIL9WfzDdzoigr8p",
@@ -1803,7 +1803,7 @@ window.SONGS = [
     durationMs: 222293,
     title: "Ricominciamo",
     artist: "Adriano Pappalardo",
-    year: "1998",
+    year: "1979",
   },
   {
     id: "515XcapFOMtOOiGU31UqNp",
@@ -1970,8 +1970,8 @@ window.SONGS = [
     id: "0CuTlmtd8SLVMzzEWcet3B",
     durationMs: 142226,
     title: "Siamo Una Squadra Fortissimi",
-    artist: "Siamo Una Squadra Fo",
-    year: "2007",
+    artist: "Checco Zalone",
+    year: "2006",
   },
   {
     id: "4CeeEOM32jQcH3eN9Q2dGj",
@@ -2020,7 +2020,7 @@ window.SONGS = [
     durationMs: 217786,
     title: "Sono solo parole",
     artist: "Noemi",
-    year: "2011",
+    year: "2012",
   },
   {
     id: "28VLTrPaxvmNfeouDsUkll",
@@ -2055,7 +2055,7 @@ window.SONGS = [
     durationMs: 180055,
     title: "Stand By Me",
     artist: "Ben E. King",
-    year: "1962",
+    year: "1961",
   },
   {
     id: "0pQskrTITgmCMyr85tb9qq",
@@ -2146,7 +2146,7 @@ window.SONGS = [
     durationMs: 231800,
     title: "Tanto pè cantà",
     artist: "Nino Manfredi",
-    year: "1932",
+    year: "1970",
   },
   {
     id: "67wVRCHjobnBE40XNlBVGP",
@@ -2265,7 +2265,7 @@ window.SONGS = [
     durationMs: 139133,
     title: "Un bacio a mezzanotte",
     artist: "Quartetto Cetra",
-    year: "1945",
+    year: "1953",
   },
   {
     id: "4ONboWX5n2926t6TcJEGHh",
@@ -2300,7 +2300,7 @@ window.SONGS = [
     durationMs: 264306,
     title: "Under the Bridge",
     artist: "Red Hot Chili Peppers",
-    year: "1992",
+    year: "1991",
   },
   {
     id: "6XpjIhIhIA5AGTyk06FNKU",
@@ -2426,6 +2426,6 @@ window.SONGS = [
     durationMs: 153728,
     title: "Zingara",
     artist: "Iva Zanicchi",
-    year: "1970",
+    year: "1969",
   },
 ];

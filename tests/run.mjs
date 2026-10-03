@@ -1125,10 +1125,11 @@ test("visible countdown contains only 3,2,1 while delayed setup remains pending"
   f.click("reveal-btn");await flush();
 });
 
-test("local durations: every dataset entry has exact-ID Spotify verification and editorial conflict stays blocked", async()=>{
+test("local durations: every dataset entry has exact-ID Spotify verification and unique playable ID", async()=>{
   const c=environment();load(c,"song.js");
   const evidence=JSON.parse(await readFile(new URL("duration-verification.json",root),"utf8"));
-  const byId=new Map(evidence.map(row=>[row.id,row]));assert.equal(byId.size,346);
+  const byId=new Map(evidence.map(row=>[row.id,row]));assert.equal(evidence.length,347);
+  assert.equal(byId.size,347);
   assert.equal(c.SONGS.length,347);
   for(const entry of c.SONGS){
     const proof=byId.get(entry.id);assert.equal(proof.status,"verified");assert.equal(proof.httpStatus,200);
@@ -1136,8 +1137,14 @@ test("local durations: every dataset entry has exact-ID Spotify verification and
     assert.equal(proof.source,"https://open.spotify.com/embed/track/"+entry.id);
     assert.equal(entry.durationMs,proof.durationMs);assert.ok(Number.isSafeInteger(entry.durationMs));
   }
-  const catalog=core.createCatalog(c.SONGS);assert.equal(catalog.isConflict("515XcapFOMtOOiGU31UqNp"),true);
-  assert.equal(catalog.lookup("515XcapFOMtOOiGU31UqNp"),null);assert.equal(catalog.size,345);
+  const queen=c.SONGS.find(entry=>entry.title==="Bohemian Rhapsody"&&entry.artist==="Queen");
+  const rimmel=c.SONGS.find(entry=>entry.title==="Rimmel"&&entry.artist==="Francesco De Gregori");
+  assert.equal(queen.id,"4u7EnebtmKWzUH433cf5Qv");
+  assert.equal(rimmel.id,"515XcapFOMtOOiGU31UqNp");assert.notEqual(queen.id,rimmel.id);
+  const catalog=core.createCatalog(c.SONGS);
+  assert.equal(catalog.isConflict(queen.id),false);assert.equal(catalog.isConflict(rimmel.id),false);
+  assert.equal(catalog.lookup(queen.id).title,queen.title);
+  assert.equal(catalog.lookup(rimmel.id).title,rimmel.title);assert.equal(catalog.size,347);
 });
 test("local duration: offset precedes first play and runtime never requests metadata or transport preparation", async()=>{
   const f=playerFixture(),events=[];f.c.Bamboc.diagnostics=(_a,event,d)=>events.push({event,...d});
