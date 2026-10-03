@@ -98,16 +98,18 @@ test("dataset warnings detect spaces, separators, empty credits and encoding wit
   assert.equal(JSON.stringify(entry), before);
 });
 test("countdown follows elapsed time including delayed callbacks and background resume", () => {
-  assert.deepEqual(plain(core.countdown(1000, 1000)), {remainingMs:45000, seconds:45, progress:1});
-  assert.equal(core.countdown(1000, 23456).seconds, 23);
+  assert.equal(environment().Bamboc.config.roundMs,30000);
+  assert.deepEqual(plain(core.countdown(1000, 1000)), {remainingMs:30000, seconds:30, progress:1});
+  assert.deepEqual(plain(core.countdown(1000, 16000)), {remainingMs:15000, seconds:15, progress:0.5});
+  assert.deepEqual(plain(core.countdown(1000, 31000)), {remainingMs:0, seconds:0, progress:0});
   assert.equal(core.countdown(1000, 90000).progress, 0);
-  assert.equal(core.countdown(1000, 90000).seconds, 0);
 });
-test("random offset reserves 45s plus safety margin and handles short tracks", () => {
-  assert.equal(core.randomPosition(180000, 45000, 2000, () => 0.5), 67000);
+test("random offset reserves 30s plus safety margin and handles short tracks", () => {
+  assert.equal(core.randomPosition(180000, 30000, 2000, () => 0.5), 74500);
   assert.throws(() => core.randomPosition(30000), /troppo breve/);
   assert.throws(() => core.randomPosition(undefined), /durata non valida/);
-  assert.ok(core.randomPosition(180000,45000,2000,()=>0.999999) < 133000);
+  assert.equal(core.randomPosition(33000,30000,2000,()=>0.5),1000);
+  assert.ok(core.randomPosition(180000,30000,2000,()=>0.999999) < 148000);
 });
 test("round transitions prevent new scans during play and pending/failed stop", () => {
   const state = new core.RoundState();
@@ -472,7 +474,7 @@ test("full simulated login -> scan -> play -> reveal -> next serializes pause an
   assert.equal(await f.scan("https://open.spotify.com/track/"+otherId),false);
   assert.equal(f.calls.includes("play"),false);
   await f.scan("spotify:track:"+id);
-  assert.equal(f.element("countdown").textContent,"45");
+  assert.equal(f.element("countdown").textContent,"30");
   const pending=defer();f.setPause(pending.promise);
   f.click("reveal-btn");f.click("reset-btn");await delay(0);
   assert.equal(f.element("reset-btn").disabled,true);
@@ -501,9 +503,9 @@ test("failed stop leaves retry action and blocks NEXT until confirmed", async ()
   f.setPause(Promise.resolve());f.click("reset-btn");await delay(0);
   assert.equal(f.element("reset-btn").textContent,"PROSSIMA CARTA");
 });
-test("expired confirmed timestamp automatically reveals without waiting 45 callback ticks", async () => {
+test("expired confirmed timestamp automatically reveals without waiting 30 callback ticks", async () => {
   const f=appFixture();await delay(0);f.click("scan-btn");await delay(0);
-  f.setPlay(Promise.resolve(Date.now()-46000));await f.scan("spotify:track:"+id);await delay(0);
+  f.setPlay(Promise.resolve(Date.now()-31000));await f.scan("spotify:track:"+id);await delay(0);
   assert.equal(f.element("reset-btn").textContent,"PROSSIMA CARTA");
   assert.equal(f.element("result").hidden,false);
 });
@@ -587,12 +589,12 @@ test("direct playback uses no volume manipulation or preparatory transport comma
 test("known duration sends random position in first play request", async () => {
   const f=playerFixture();await f.api.play({...song,durationMs:180000});
   assert.ok(f.requests[0].body.position_ms>=1000);
-  assert.ok(f.requests[0].body.position_ms<=133000);await f.api.stop();
+  assert.ok(f.requests[0].body.position_ms<=148000);await f.api.stop();
 });
 test("each track uses its own local duration and no SDK duration cache is written", async()=>{
  const f=playerFixture();await f.api.play(song);await f.api.stop();
  await f.api.play({...song,id:otherId,durationMs:60000});await f.api.stop();
- assert.ok(f.requests[0].body.position_ms<=133000);assert.ok(f.requests[1].body.position_ms<=13000);
+ assert.ok(f.requests[0].body.position_ms<=148000);assert.ok(f.requests[1].body.position_ms<=28000);
  assert.equal(f.c.sessionStorage.getItem("bamboc.spotify.durations.v1"),null);
 });
 test("legacy duration cache never substitutes for missing verified local duration", async()=>{
@@ -648,7 +650,7 @@ test("fast preparation waits 3-2-1; reveal and timer stay disabled", async () =>
     assert.equal(f.element("reveal-btn").disabled,true);assert.equal(f.element("timer").hidden,true);
     f.click("reveal-btn");await clock.advance(1000);
   }
-  await pending;assert.equal(f.element("countdown").textContent,"45");
+  await pending;assert.equal(f.element("countdown").textContent,"30");
   f.click("reveal-btn");await flush();
   assert.equal(clock.pending,0);
 });
@@ -658,7 +660,7 @@ test("slow preparation hides countdown after 1 until playback confirmed", async 
   await clock.advance(3000);assert.equal(f.element("preplay-count").textContent,"1");
   assert.equal(f.element("preplay").hidden,true);
   assert.equal(f.element("timer").hidden,true);
-  gate.resolve(null);await pending;assert.equal(f.element("countdown").textContent,"45");
+  gate.resolve(null);await pending;assert.equal(f.element("countdown").textContent,"30");
   f.click("reveal-btn");await flush();assert.equal(clock.pending,0);
 });
 test("reset during PREPARING cancels clock and ignores late completion", async () => {
@@ -674,12 +676,19 @@ test("old scanner callback cannot consume QR after NEXT starts a new session", a
   f.click("reset-btn");await delay(0);await stale("spotify:track:"+id);
   assert.equal(f.calls.filter(x=>x==="play").length,1);f.click("cancel-btn");await delay(0);
 });
-test("background cancels camera; 45-second deadline auto-reveals and cleans timers", async () => {
+test("background cancels camera; 30-second deadline auto-reveals and cleans timers", async () => {
   const clock=fakeClock(),f=appFixture({clock});await flush();f.click("scan-btn");await flush();
   f.visibility(true);await flush();assert.equal(f.element("scan-btn").hidden,false);
   f.visibility(false);f.click("scan-btn");await flush();await f.scan("spotify:track:"+id);
-  await clock.advance(44999);assert.equal(f.element("result").hidden,true);
+  assert.equal(f.element("countdown").textContent,"30");
+  assert.equal(Number(f.element("progress-ring-circle").style.strokeDashoffset),0);
+  await clock.advance(15000);f.visibility(false);
+  assert.equal(f.element("countdown").textContent,"15");
+  assert.ok(Math.abs(Number(f.element("progress-ring-circle").style.strokeDashoffset)-Math.PI*80)<0.001);
+  await clock.advance(14999);f.visibility(false);assert.equal(f.element("result").hidden,true);
   await clock.advance(1);assert.equal(f.element("result").hidden,false);assert.equal(clock.pending,0);
+  assert.equal(f.element("countdown").textContent,"0");
+  assert.ok(Math.abs(Number(f.element("progress-ring-circle").style.strokeDashoffset)-2*Math.PI*80)<0.001);
 });
 test("logout during refresh cannot resurrect tokens and removes legacy owned keys only", async () => {
   const gate=defer(),c=authFixture({...expired,refresh_token:"legacy",token_expires_at:"0",unrelated:"keep"},()=>gate.promise);
@@ -1156,7 +1165,7 @@ test("local duration: offset precedes first play and runtime never requests meta
   assert.equal(f.calls.includes("/me/player"),false);await f.api.stop();
 });
 test("local duration: absent/invalid/too-short values never produce any play command", async()=>{
-  for(const durationMs of [undefined,null,0,-1,NaN,Infinity,"180000",180000.5,47000]) {
+  for(const durationMs of [undefined,null,0,-1,NaN,Infinity,"180000",180000.5,32000]) {
     const f=playerFixture();await assert.rejects(f.api.play({...song,durationMs}));assert.equal(f.requests.length,0);
   }
 });
@@ -1226,7 +1235,7 @@ test("countdown writes each digit once, hides while HTTP is pending, timer waits
   await clock.advance(1000);assert.deepEqual(writes,["3","2","1"]);
   assert.equal(f.element("preplay").hidden,true);assert.equal(f.element("timer").hidden,true);
   assert.equal(f.element("countdown").textContent,"");assert.equal(f.element("reveal-btn").disabled,true);
-  gate.resolve();await pending;assert.equal(f.element("timer").hidden,false);assert.equal(f.element("countdown").textContent,"45");
+  gate.resolve();await pending;assert.equal(f.element("timer").hidden,false);assert.equal(f.element("countdown").textContent,"30");
   assert.deepEqual(writes,["3","2","1"]);assert.equal(player.requests[0].body.position_ms,position);
   assert.equal(f.element("preplay").hidden,true);f.click("reveal-btn");await flush();f.click("reset-btn");await flush();
   const next=f.scan("spotify:track:"+id);await flush();assert.equal(value,"3");
@@ -1477,11 +1486,11 @@ test("release: normal mode runs QR/countdown/direct offset/confirmation/reveal/n
   assert.deepEqual(writes,["3","2","1"]);assert.equal(f.element("preplay").hidden,true);
   assert.equal(f.element("timer").hidden,true);assert.equal(player.requests.length,1);
   const request=player.requests[0];assert.match(request.path,/\/me\/player\/play\?device_id=/);
-  assert.ok(request.body.position_ms>=1000&&request.body.position_ms<=song.durationMs-47000);
+  assert.ok(request.body.position_ms>=1000&&request.body.position_ms<=song.durationMs-32000);
   assert.deepEqual(plain(request.body.uris),["spotify:track:"+id]);
   assert.equal(player.calls.includes("seek"),false);assert.equal(player.calls.includes("pause"),false);
   await clock.advance(1000);assert.deepEqual(writes,["3","2","1"]);assert.equal(f.element("timer").hidden,true);
-  gate.resolve();await pending;assert.equal(f.element("countdown").textContent,"45");
+  gate.resolve();await pending;assert.equal(f.element("countdown").textContent,"30");
   assert.equal(f.element("timer").hidden,false);assert.equal(reports.length,0);
   assert.ok(f.calls.indexOf("camera stop")>=0);
   f.click("reveal-btn");await flush();

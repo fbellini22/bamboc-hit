@@ -80,14 +80,14 @@
     for (const id of conflicts) byId.delete(id);
     return { issues, size: byId.size, lookup: id => byId.get(id) || null, isConflict: id => conflicts.has(id) };
   }
-  function countdown(startedAt, now, durationMs = 45000) {
+  function countdown(startedAt, now, durationMs = 30000) {
     const remainingMs = Math.max(0, Math.min(durationMs, durationMs - (now - startedAt)));
     return { remainingMs, seconds: Math.ceil(remainingMs / 1000), progress: remainingMs / durationMs };
   }
-  function randomPosition(durationMs, roundMs = 45000, marginMs = 2000, random = Math.random, minimumMs = 1000) {
+  function randomPosition(durationMs, roundMs = 30000, marginMs = 2000, random = Math.random, minimumMs = 1000) {
     const maximum = Math.floor(durationMs - roundMs - marginMs);
     if (!Number.isFinite(durationMs) || maximum < minimumMs)
-      throw new Error("Traccia troppo breve o durata non valida per un segmento casuale di 45 secondi senza intro.");
+      throw new Error("Traccia troppo breve o durata non valida per un segmento casuale di 30 secondi senza intro.");
     return minimumMs + Math.floor(Math.max(0, Math.min(1, random())) * (maximum - minimumMs));
   }
   const transitions = {

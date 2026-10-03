@@ -8,7 +8,7 @@ Servire questa cartella tramite un server statico HTTPS, oppure HTTP su `127.0.0
 
 Occorrono un account Spotify Premium abilitato alla app, un browser con DRM compatibile e accesso alla camera. Dopo un vecchio login senza refresh token è necessario accedere di nuovo. La app non usa un client secret.
 
-Login → attendere player → SCAN → QR → 3 → 2 → 1 → segmento casuale e 45 secondi → REVEAL → NEXT SONG.
+Login → attendere player → SCAN → QR → 3 → 2 → 1 → segmento casuale e 30 secondi → REVEAL → NEXT SONG.
 SCAN è disponibile soltanto con sessione completa, token non scaduto, connect riuscito e READY con device valido. Token corrotti, callback OAuth invalido e refresh fallito riportano al pulsante LOGIN, cancellando soltanto le chiavi dell'app. Un device non pronto espone **Riconnetti Spotify**, senza avviare un round; **Esci da Spotify** annulla round e richieste, ferma camera/player e invalida la sessione. Una sessione valida salvata può essere recuperata al reload senza un nuovo login interattivo.
 
 In Spotify Developer Dashboard registrare esattamente `https://fbellini22.github.io/bamboc-hit/` come Redirect URI (HTTPS, slash finale, nessuna query). La configurazione del dashboard deve essere verificata dal proprietario; non è modificata dall'app.

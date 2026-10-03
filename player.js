@@ -63,7 +63,7 @@
     if (error.status === 429) return "Troppe richieste Spotify (HTTP 429).";
     const local = error instanceof core.SpotifyError || [
       "Timeout stato Spotify.",
-      "Traccia troppo breve o durata non valida per un segmento casuale di 45 secondi senza intro.",
+      "Traccia troppo breve o durata non valida per un segmento casuale di 30 secondi senza intro.",
       "Arresto fotocamera non confermato.",
     ].includes(message);
     return local ? message.replace(/https?:\/\/\S+|Bearer\s+\S+|[A-Za-z0-9_~+\/=-]{40,}/gi, "[omesso]")
