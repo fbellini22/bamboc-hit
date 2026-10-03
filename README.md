@@ -32,7 +32,9 @@ node scripts/apply-durations.mjs
 
 Il recupero legge l'oggetto strutturato della pagina embed pubblica Spotify, verifica ID e URI esatti e scarta il resto. `duration-verification.json` contiene le evidenze per ID; `duration-report.json` elenca mancanti e anomalie. L'applicazione rifiuta un recupero incompleto e modifica solo durationMs, aggiornando lo stesso campo nelle segnalazioni già note della baseline. Titolo, artista, anno e QR mapping restano invariati. Una verifica fallita lascia la durata mancante; niente valori stimati.
 
-La versione finale non carica pannelli diagnostici, sonde DRM o journal OAuth/browser. Gli errori operativi restano visibili nel normale messaggio di stato. Vedi [verifica finale](RELEASE_CHECK.md) e [report durate e avvio diretto](DURATION_PLAYBACK_REPORT.md).
+La versione finale non carica pannelli diagnostici, sonde DRM o journal OAuth/browser. Gli errori operativi restano visibili nel normale messaggio di stato. Vedi [verifica finale](docs/RELEASE_CHECK.md) e [report durate e avvio diretto](docs/DURATION_PLAYBACK_REPORT.md).
+
+I report storici di sviluppo e audit sono raccolti in `docs/`.
 
 ## Verifiche
 
@@ -52,9 +54,9 @@ La validazione rigorosa segnala un conflitto esistente nel dataset. La variante 
 Nel normale utilizzo la console conserva solo errori sintetici. `?debug=1` abilita esplicitamente tracce di sviluppo e tempi relativi: non attiva pannelli e non persiste dopo il redirect/reload senza parametro. Nessun token viene stampato. Gli osservatori OAuth/browser sono confinati in `tests/support`, non caricati dalla pagina.
 I test simulano SDK, auth, camera e DOM. Il test fisico Premium/mobile resta necessario.
 
-- [Report tecnico completo](AUDIT_REPORT.md)
-- [Correzione autenticazione e readiness dopo il test reale](AUTH_FIX_REPORT.md)
-- [Elenco anomalie dati](DATASET_AUDIT.md)
+- [Report tecnico completo](docs/AUDIT_REPORT.md)
+- [Correzione autenticazione e readiness dopo il test reale](docs/AUTH_FIX_REPORT.md)
+- [Elenco anomalie dati](docs/DATASET_AUDIT.md)
 
 Le tab sospese possono impedire la pausa puntuale del browser; il countdown recupera il tempo reale trascorso al ritorno.
 
