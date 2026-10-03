@@ -83,7 +83,7 @@ button:disabled { opacity: .55; cursor: wait; box-shadow: none; transform: none;
 .progress-ring-bg, .progress-ring-circle { fill: none; stroke-width: 5; }
 .progress-ring-bg { stroke: var(--border); }
 .progress-ring-circle { stroke: var(--orange); stroke-linecap: round; stroke-dasharray: 502.6548245743669; stroke-dashoffset: 0; transform: rotate(-90deg); transform-origin: 50% 50%; }
-#game-screen:has(#result:not([hidden])) .reveal-heading { display: block; animation: reveal-item 350ms ease-out both; }
+#game-screen:has(#result:not([hidden])) .reveal-heading { display: block; margin-top: -20px; animation: reveal-item 350ms ease-out both; }
 .card-container { width: 100%; }
 .card { position: relative; width: 100%; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 32px 8px; }
 .card-front { display: none; }
@@ -103,6 +103,12 @@ button:disabled { opacity: .55; cursor: wait; box-shadow: none; transform: none;
 @media (min-width: 600px) {
   body { padding-block: 40px; }
   main { padding: 28px 32px; border: 1px solid var(--border); border-radius: 32px; background: #100d2099; }
+}
+@media (max-width: 599px) {
+  body:has(#login-screen:not([hidden])) .topbar { margin-bottom: 20px; }
+  #login-screen { gap: 14px; }
+  #login-screen .record-art { margin-block: 0; }
+  body:has(#login-screen:not([hidden])) .game-footer { margin-top: 18px; }
 }
 @media (max-width: 359px) {
   .topbar { margin-bottom: 20px; }

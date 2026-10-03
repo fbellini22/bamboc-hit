@@ -470,18 +470,22 @@ function appFixture({clock, preplayMs=0, songs=[song], context, realSession=fals
 test("full simulated login -> scan -> play -> reveal -> next serializes pause and keeps local metadata", async () => {
   const f=appFixture();await delay(0);
   assert.equal(f.element("game-screen").hidden,false);
+  assert.equal(f.element("status").textContent,"");
   f.click("scan-btn");await delay(0);
   assert.equal(await f.scan("https://open.spotify.com/track/"+otherId),false);
   assert.equal(f.calls.includes("play"),false);
   await f.scan("spotify:track:"+id);
   assert.equal(f.element("countdown").textContent,"30");
+  assert.equal(f.element("status").textContent,"");
   const pending=defer();f.setPause(pending.promise);
   f.click("reveal-btn");f.click("reset-btn");await delay(0);
   assert.equal(f.element("reset-btn").disabled,true);
   assert.equal(f.calls.filter(x=>x==="scan").length,1);
   const back=f.element("result").children[0].children[1];
   assert.deepEqual(back.children.map(x=>x.textContent),[song.title,song.artist,song.year]);
-  pending.resolve();await delay(0);f.click("reset-btn");await delay(0);
+  pending.resolve();await delay(0);
+  assert.equal(f.element("status").textContent,"");
+  f.click("reset-btn");await delay(0);
   assert.equal(f.calls.filter(x=>x==="scan").length,2);
   f.click("cancel-btn");await delay(0);
 });
@@ -746,6 +750,8 @@ function assertLoggedOut(f) {
 }
 test("session: first visit without tokens shows working LOGIN and cannot scan or initialize SDK", async()=>{
   const f=sessionFixture({tokens:{}});await flush();assertLoggedOut(f);
+  assert.equal(f.element("status").textContent,"");
+  assert.equal(f.element("status").attributes["data-error-code"],"");
   f.click("scan-btn");f.click("reset-btn");await flush();
   assert.equal(f.calls.includes("scan"),false);assert.equal(f.player.instances.length,0);
   await f.click("login-btn");
@@ -792,6 +798,8 @@ test("session: invalid/incomplete OAuth callback clears old tokens, cleans URL a
   for(const query of ["code=c&state=wrong","state=s","code=&state=s","error=access_denied&state=s"]) {
     const f=sessionFixture({callback:"https://test.example/game/?"+query,pkce:{verifier:"v",state:"s",createdAt:Date.now()}});
     await flush();assertLoggedOut(f);assert.equal(f.player.instances.length,0);
+    assert.ok(f.element("status").textContent);
+    assert.equal(f.element("status").attributes["data-error-code"],"AUTH_REQUIRED");
     assert.equal(f.c.location.href,"https://test.example/game/");await f.click("login-btn");
     assert.equal(new URL(f.c.location.assigned).hostname,"accounts.spotify.com");
   }
@@ -813,6 +821,7 @@ test("session: readiness timeout offers connection retry, never playback retry",
   const f=sessionFixture({noReady:true});await delay(100);
   assert.equal(f.element("scan-btn").disabled,true);assert.equal(f.element("connect-btn").hidden,false);
   assert.equal(f.element("status").attributes["data-error-code"],"PLAYER_NOT_READY");
+  assert.ok(f.element("status").textContent);
   f.player.options.noReady=false;await f.click("connect-btn");await flush();
   assert.equal(f.element("scan-btn").disabled,false);assert.equal(f.player.requests.length,0);f.pagehide();
 });

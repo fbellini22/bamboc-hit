@@ -60,8 +60,10 @@
     cameraStopped = scanner.stop();
     cameraStopped.catch(() => {}); // A new connection must confirm camera cleanup.
     spotifyState = "AUTH_REQUIRED";
-    message(error?.message || "Accedi a Spotify per iniziare.");
-    el("status").setAttribute("data-error-code", "AUTH_REQUIRED");
+    const loginMessage = error?.message || "Accedi a Spotify per iniziare.";
+    const normalLogin = loginMessage === "Accedi a Spotify per iniziare.";
+    message(normalLogin ? "" : loginMessage);
+    el("status").setAttribute("data-error-code", normalLogin ? "" : "AUTH_REQUIRED");
     render();
   }
   async function connectSpotify(callback = false) {
@@ -84,7 +86,7 @@
         if (epoch !== sessionId || leaving) return;
         if (!auth.hasValidToken()) throw new auth.LoginRequired("Accedi a Spotify per iniziare.");
         if (!playback.isReady()) throw new core.SpotifyError("DEVICE_NOT_READY", "Dispositivo Spotify non pronto. Riconnetti Spotify.");
-        spotifyState = "PLAYER_READY"; el("status").setAttribute("data-error-code", ""); message("Premi SCAN per iniziare.");
+        spotifyState = "PLAYER_READY"; el("status").setAttribute("data-error-code", ""); message("");
         window.Bamboc.diagnostics("PLAYER", "scan_enabled");
       } catch (error) {
         if (epoch !== sessionId || leaving) return;
@@ -195,7 +197,7 @@
       move("playing");
       window.Bamboc.browserDiagnostics?.event("playback_confirmed", { roundId: id });
       if (config.debug) timeline.push({ event: "ui_playing", atMs: Date.now(), monotonicMs: performance.now() });
-      message("Indovina titolo, artista e anno!");
+      message("");
       tick();
       if (round.phase === "playing")
         deadlineTimer = setTimeout(tick, Math.max(0, config.roundMs - (Date.now() - startedAt)));
@@ -255,7 +257,7 @@
       if (id !== roundId || leaving) return;
       if (!playback.isReady()) spotifyState = "PLAYER_NOT_READY";
       move(revealAfterStop ? "revealed" : "idle");
-      if (revealAfterStop) { message("Risposta svelata."); el("reset-btn").focus(); }
+      if (revealAfterStop) el("reset-btn").focus();
     } catch (error) {
       if (id !== roundId || leaving) return;
       move("stop-error");
