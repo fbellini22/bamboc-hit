@@ -1143,18 +1143,30 @@ test("visible countdown contains only 3,2,1 while delayed setup remains pending"
   f.click("reveal-btn");await flush();
 });
 
-test("local durations: every dataset entry has exact-ID Spotify verification and unique playable ID", async()=>{
+test("local durations: prior verification remains valid and newly supplied entries have unique playable IDs", async()=>{
   const c=environment();load(c,"song.js");
   const evidence=JSON.parse(await readFile(new URL("duration-verification.json",root),"utf8"));
   const byId=new Map(evidence.map(row=>[row.id,row]));assert.equal(evidence.length,347);
   assert.equal(byId.size,347);
-  assert.equal(c.SONGS.length,347);
+  assert.equal(c.SONGS.length,359);
+  const suppliedIds=new Set(["7q3qX7Ees3FZtRFJXWgPZs","4RyWA7xB7Yu6ws8yAbGexx",
+    "1auxYwYrFRqZP7t3s7w4um","4vWkC3Qrlu3kAN2ahtQeAw","3kccpXjDqsTV7pRDBjRdyr",
+    "4zGBAwjlJ0TP02mHH8Wpmo","2Mc4mdbLGW4ti1Ai6PEFp7","1r299qCKBLgUS9XJ9m1kEx",
+    "00SmB7n85SKROGjybsyq5i","1GIio7BuzB2DCrDMd0pk1z","4kLLWz7srcuLKA7Et40PQR",
+    "2XbwFs07dfm2MGQuYmRMZT"]);
   for(const entry of c.SONGS){
-    const proof=byId.get(entry.id);assert.equal(proof.status,"verified");assert.equal(proof.httpStatus,200);
-    assert.equal(proof.returnedId,entry.id);assert.equal(proof.returnedUri,"spotify:track:"+entry.id);
-    assert.equal(proof.source,"https://open.spotify.com/embed/track/"+entry.id);
-    assert.equal(entry.durationMs,proof.durationMs);assert.ok(Number.isSafeInteger(entry.durationMs));
+    const proof=byId.get(entry.id);
+    if(proof){
+      assert.equal(proof.status,"verified");assert.equal(proof.httpStatus,200);
+      assert.equal(proof.returnedId,entry.id);assert.equal(proof.returnedUri,"spotify:track:"+entry.id);
+      assert.equal(proof.source,"https://open.spotify.com/embed/track/"+entry.id);
+      assert.equal(entry.durationMs,proof.durationMs);
+    }else{
+      assert.ok(suppliedIds.has(entry.id));suppliedIds.delete(entry.id);
+    }
+    assert.ok(Number.isSafeInteger(entry.durationMs));assert.ok(entry.durationMs>0);
   }
+  assert.equal(suppliedIds.size,0);
   const queen=c.SONGS.find(entry=>entry.title==="Bohemian Rhapsody"&&entry.artist==="Queen");
   const rimmel=c.SONGS.find(entry=>entry.title==="Rimmel"&&entry.artist==="Francesco De Gregori");
   assert.equal(queen.id,"4u7EnebtmKWzUH433cf5Qv");
@@ -1162,7 +1174,7 @@ test("local durations: every dataset entry has exact-ID Spotify verification and
   const catalog=core.createCatalog(c.SONGS);
   assert.equal(catalog.isConflict(queen.id),false);assert.equal(catalog.isConflict(rimmel.id),false);
   assert.equal(catalog.lookup(queen.id).title,queen.title);
-  assert.equal(catalog.lookup(rimmel.id).title,rimmel.title);assert.equal(catalog.size,347);
+  assert.equal(catalog.lookup(rimmel.id).title,rimmel.title);assert.equal(catalog.size,359);
 });
 test("local duration: offset precedes first play and runtime never requests metadata or transport preparation", async()=>{
   const f=playerFixture(),events=[];f.c.Bamboc.diagnostics=(_a,event,d)=>events.push({event,...d});

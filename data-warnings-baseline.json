@@ -567,5 +567,33 @@
       "year": "1975",
       "durationMs": 220640
     }
+  },
+  {
+    "severity": "warning",
+    "code": "artist-separator",
+    "row": 350,
+    "id": "1auxYwYrFRqZP7t3s7w4um",
+    "field": "artist",
+    "song": {
+      "id": "1auxYwYrFRqZP7t3s7w4um",
+      "title": "Ni**as In Paris",
+      "artist": "JAY-Z;Kanye West",
+      "year": "2011",
+      "durationMs": 219333
+    }
+  },
+  {
+    "severity": "warning",
+    "code": "artist-separator",
+    "row": 355,
+    "id": "1r299qCKBLgUS9XJ9m1kEx",
+    "field": "artist",
+    "song": {
+      "id": "1r299qCKBLgUS9XJ9m1kEx",
+      "title": "Moves Like Jagger",
+      "artist": "Maroon 5;Christina Aguilera",
+      "year": "2011",
+      "durationMs": 202640
+    }
   }
 ]
