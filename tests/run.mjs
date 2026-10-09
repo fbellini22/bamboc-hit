@@ -1146,9 +1146,9 @@ test("visible countdown contains only 3,2,1 while delayed setup remains pending"
 test("local durations: prior verification remains valid and newly supplied entries have unique playable IDs", async()=>{
   const c=environment();load(c,"song.js");
   const evidence=JSON.parse(await readFile(new URL("duration-verification.json",root),"utf8"));
-  const byId=new Map(evidence.map(row=>[row.id,row]));assert.equal(evidence.length,347);
-  assert.equal(byId.size,347);
-  assert.equal(c.SONGS.length,359);
+  const byId=new Map(evidence.map(row=>[row.id,row]));assert.equal(evidence.length,348);
+  assert.equal(byId.size,348);
+  assert.equal(c.SONGS.length,360);
   const suppliedIds=new Set(["7q3qX7Ees3FZtRFJXWgPZs","4RyWA7xB7Yu6ws8yAbGexx",
     "1auxYwYrFRqZP7t3s7w4um","4vWkC3Qrlu3kAN2ahtQeAw","3kccpXjDqsTV7pRDBjRdyr",
     "4zGBAwjlJ0TP02mHH8Wpmo","2Mc4mdbLGW4ti1Ai6PEFp7","1r299qCKBLgUS9XJ9m1kEx",
@@ -1174,7 +1174,7 @@ test("local durations: prior verification remains valid and newly supplied entri
   const catalog=core.createCatalog(c.SONGS);
   assert.equal(catalog.isConflict(queen.id),false);assert.equal(catalog.isConflict(rimmel.id),false);
   assert.equal(catalog.lookup(queen.id).title,queen.title);
-  assert.equal(catalog.lookup(rimmel.id).title,rimmel.title);assert.equal(catalog.size,359);
+  assert.equal(catalog.lookup(rimmel.id).title,rimmel.title);assert.equal(catalog.size,360);
 });
 test("local duration: offset precedes first play and runtime never requests metadata or transport preparation", async()=>{
   const f=playerFixture(),events=[];f.c.Bamboc.diagnostics=(_a,event,d)=>events.push({event,...d});
@@ -1585,6 +1585,41 @@ test("visual redesign keeps hidden authoritative, reduced motion, safe areas and
   assert.match(html,/id="progress-ring-circle"[^>]*cx="90" cy="90" r="80"/);
   assert.match(css,/stroke-dasharray:\s*502\.6548245743669/);
 });
+
+// Original printed payloads, not QR images regenerated from catalog IDs.
+const printedQrFixture=JSON.parse(await readFile(new URL("tests/fixtures/original-qr-payloads.json",root),"utf8"));
+for(const [alias,canonicalId] of printedQrFixture.approvedAliases){
+  test("printed alias preserves canonical playback/countdown/reveal/next: "+alias, async()=>{
+    const songs=vm.runInNewContext(sources["song.js"]+";window.SONGS",{window:{}});
+    const canonical=songs.find(row=>row.id===canonicalId);
+    const card=printedQrFixture.cards.find(row=>core.extractTrackId(row.payload)===alias);
+    assert.ok(card);
+    const clock=fakeClock(),player=playerFixture({realAuth:true,tokens:savedSession(),duration:canonical.durationMs});
+    const f=appFixture({clock,context:player.c,realSession:true,preplayMs:3000,songs});await flush();
+    f.click("scan-btn");await flush();const pending=f.scan(card.payload);await flush();
+    for(const digit of ["3","2","1"]){
+      assert.equal(f.element("preplay-count").textContent,digit);
+      assert.equal(player.requests.length,0);await clock.advance(1000);
+    }
+    await pending;
+    assert.equal(player.requests.length,1);
+    assert.deepEqual(player.requests[0].body.uris,["spotify:track:"+canonicalId]);
+    assert.ok(player.requests[0].body.position_ms>=1000);
+    assert.ok(player.requests[0].body.position_ms<=canonical.durationMs-32000);
+    assert.equal(f.element("countdown").textContent,"30");
+    assert.equal(f.element("timer").hidden,false);
+    await clock.advance(30000);await flush();
+    assert.equal(f.element("timer").hidden,true);
+    assert.equal(f.element("result").hidden,false);
+    const back=f.element("result").children[0].children[1];
+    assert.deepEqual(back.children.map(x=>x.textContent),[canonical.title,canonical.artist,canonical.year]);
+    assert.equal(f.element("reset-btn").disabled,false);
+    f.click("reset-btn");await flush();
+    assert.equal(f.element("scanner-container").hidden,false);
+    assert.equal(player.requests.length,1);
+    f.pagehide();await flush();
+  });
+}
 
 let failures=0;
 export const results = [];

@@ -5,6 +5,16 @@
   }
   function errorCode(error) { return error?.code || "PLAYBACK_FAILED"; }
   const idPattern = /^[A-Za-z0-9]{22}$/;
+  // Approved editorial QR aliases, not claims of identical recordings.
+  // Playback always receives the existing canonical record and its local duration.
+  const spotifyAliases = Object.freeze([
+    ["0ZXKyekFgjiSJ6q2Wc3bRn", "7zrkOMlUmpdS6COxQykfVU"],
+    ["5iLoVWRuwPity9CuN1VTJ8", "5Fc7LXJHo8G333kXJRzKC7"],
+    ["3z8h0TU7ReDPLIbEnYhWZb", "4u7EnebtmKWzUH433cf5Qv"],
+    ["5ubvP9oKmxLUVq506fgLhk", "4UDmDIqJIbrW0hMBQMFOsM"],
+    ["1BfNrVP9r6WoQEAwhsGaJZ", "3ShEGKdskF0ke7iW2u9gjD"],
+    ["7HqaGIzhPpHGTPnX8Cxbkt", "0txZSVRp86nluHUhd1SbA9"],
+  ].map(pair => Object.freeze(pair)));
   function extractTrackId(value) {
     if (typeof value !== "string") return null;
     const text = value.trim();
@@ -60,7 +70,7 @@
     });
     return issues;
   }
-  function createCatalog(songs) {
+  function createCatalog(songs, aliases = spotifyAliases) {
     const issues = validateSongs(songs);
     const invalidRows = new Set(issues.filter(x => x.severity === "error").map(x => x.row));
     const byId = new Map(), conflicts = new Set();
@@ -78,7 +88,33 @@
       if (!previous) byId.set(song.id, Object.freeze({ ...song }));
     });
     for (const id of conflicts) byId.delete(id);
-    return { issues, size: byId.size, lookup: id => byId.get(id) || null, isConflict: id => conflicts.has(id) };
+    const aliasMap = new Map(), aliasKeys = new Set();
+    let invalidAliases = false;
+    const aliasIssue = (code, id) => {
+      invalidAliases = true;
+      issues.push({ severity: "error", code, row: 0, id, field: "aliases" });
+    };
+    if (!Array.isArray(aliases)) aliasIssue("invalid-alias-list", null);
+    for (const pair of Array.isArray(aliases) ? aliases : []) {
+      if (!Array.isArray(pair) || pair.length !== 2 ||
+          pair.some(id => typeof id !== "string" || !idPattern.test(id))) {
+        aliasIssue("invalid-alias", null); continue;
+      }
+      const [alias, canonical] = pair;
+      if (aliasKeys.has(alias)) aliasIssue("duplicate-alias", alias);
+      aliasKeys.add(alias);
+      if (editorial.has(alias)) aliasIssue("alias-canonical-collision", alias);
+      if (!byId.has(canonical)) aliasIssue("alias-target-unavailable", alias);
+      aliasMap.set(alias, canonical);
+    }
+    for (const [alias, canonical] of aliasMap) {
+      if (aliasKeys.has(canonical)) aliasIssue("alias-chain-or-cycle", alias);
+    }
+    // Fail closed for the entire alias configuration; canonical records stay usable.
+    if (invalidAliases) aliasMap.clear();
+    return { issues, size: byId.size,
+      lookup: id => byId.get(aliasMap.get(id) || id) || null,
+      isConflict: id => conflicts.has(id) };
   }
   function countdown(startedAt, now, durationMs = 30000) {
     const remainingMs = Math.max(0, Math.min(durationMs, durationMs - (now - startedAt)));
@@ -139,7 +175,7 @@
       tick();
     });
   }
-  const core = { SpotifyError, errorCode, extractTrackId, validateSongs, createCatalog, countdown, randomPosition, RoundState,
+  const core = { SpotifyError, errorCode, extractTrackId, validateSongs, createCatalog, spotifyAliases, countdown, randomPosition, RoundState,
     withTimeout, abortable, preplayCountdown };
   if (typeof module !== "undefined" && module.exports) module.exports = core;
   else { root.Bamboc = root.Bamboc || {}; root.Bamboc.core = core; }

@@ -4509,5 +4509,18 @@
         "returnedUri":  "spotify:track:4kzOYNpDNmkSGs9w6Z7dVB",
         "sourceField":  "props.pageProps.state.data.entity.duration",
         "embedPlayable":  true
+    },
+    {
+        "id": "3WG7xz0rYy49I1MhDrAgxY",
+        "source": "https://open.spotify.com/embed/track/3WG7xz0rYy49I1MhDrAgxY",
+        "checkedAt": "2026-10-09T15:21:13.7557836Z",
+        "status": "verified",
+        "reason": null,
+        "httpStatus": 200,
+        "durationMs": 131317,
+        "returnedId": "3WG7xz0rYy49I1MhDrAgxY",
+        "returnedUri": "spotify:track:3WG7xz0rYy49I1MhDrAgxY",
+        "sourceField": "props.pageProps.state.data.entity.duration",
+        "embedPlayable": true
     }
 ]
