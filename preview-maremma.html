@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Preview Login Maremma Disco — Bamboc-Hit</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 20px; background: #0b0917; color: #fff8f1; font: 15px Arial, sans-serif; }
+    h1 { margin: 0 0 8px; color: #ff9ac4; font-size: 22px; }
+    p { margin: 0 0 20px; color: #b8aecb; }
+    label { display: inline-block; margin: 0 8px 14px 0; }
+    select { padding: 7px 10px; background: #1b1630; color: #fff8f1; border: 1px solid #544064; border-radius: 8px; }
+    iframe { box-sizing: content-box; display: block; width: var(--preview-width, 390px); max-width: none; height: 844px; border: 1px solid #544064; background: #100d20; }
+    .canvas { max-width: 100%; overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <h1>Login Maremma Disco — preview</h1>
+  <p>Rendering statico dell'HTML e del CSS reali della Login. Spotify e il gioco non vengono avviati.</p>
+  <label for="viewport">Viewport</label>
+  <select id="viewport">
+    <option value="320x568">320 × 568</option>
+    <option value="375x667">375 × 667</option>
+    <option value="375x812">375 × 812</option>
+    <option value="390x844" selected>390 × 844</option>
+    <option value="393x852">393 × 852</option>
+    <option value="430x932">430 × 932</option>
+    <option value="480x900">480 × 900</option>
+    <option value="1440x900">Desktop 1440 × 900</option>
+  </select>
+  <label for="browser-bars">Spazio barre Safari</label>
+  <select id="browser-bars">
+    <option value="0">0 px — viewport intero</option>
+    <option value="100">100 px — simulazione</option>
+    <option value="150" selected>150 px — simulazione prudente</option>
+  </select>
+  <p id="viewport-info" aria-live="polite"></p>
+  <div class="canvas"><iframe title="Schermata Login" id="login-preview"></iframe></div>
+  <script>
+    const frame = document.getElementById('login-preview');
+    const viewport = document.getElementById('viewport');
+    const bars = document.getElementById('browser-bars');
+    function resizePreview() {
+      const [width, height] = viewport.value.split('x').map(Number);
+      const availableHeight = height - (width < 600 ? Number(bars.value) : 0);
+      frame.style.setProperty('--preview-width', width + 'px');
+      frame.style.height = availableHeight + 'px';
+      document.getElementById('viewport-info').textContent =
+        `Viewport effettivo: ${width} × ${availableHeight} px. Le barre sono una stima; questa preview non emula le safe area o il rendering di Safari.`;
+    }
+    viewport.addEventListener('change', resizePreview);
+    bars.addEventListener('change', resizePreview);
+    resizePreview();
+    fetch('index.html', { cache: 'no-store' }).then(response => {
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      return response.text();
+    }).then(source => {
+      const page = new DOMParser().parseFromString(source, 'text/html');
+      page.querySelectorAll('script').forEach(script => script.remove());
+      const stylesheet = page.querySelector('link[rel="stylesheet"][href="style.css"]');
+      stylesheet.href = 'style.css?preview=' + Date.now();
+      frame.srcdoc = '<!doctype html>' + page.documentElement.outerHTML;
+    }).catch(error => { document.querySelector('p').textContent = 'Preview non disponibile: ' + error.message; });
+  </script>
+</body>
+</html>

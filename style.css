@@ -1,4 +1,4 @@
-﻿:root {
+:root {
   color-scheme: dark;
   --bg: #100d20; --surface: #1b1630; --pink: #ff3d81; --pink-light: #ff9ac4;
   --orange: #ffad66; --text: #fff8f1; --muted: #b8aecb; --border: #39304e;
@@ -100,6 +100,8 @@ button:disabled { opacity: .55; cursor: wait; box-shadow: none; transform: none;
 #connect-btn { margin-top: 20px; }
 .game-footer { margin-top: 32px; padding: 12px 0; color: var(--muted); font-size: 9px; letter-spacing: 1.4px; line-height: 1.8; }
 .game-footer span { color: var(--pink); margin-right: 6px; }
+#game-screen { position: relative; isolation: isolate; }
+#game-screen::before { content: ""; position: absolute; inset: 12% 0 12%; z-index: -1; pointer-events: none; background: url("assets/maremma/paesaggio.svg") center 62% / 100% auto no-repeat; opacity: .3; }
 .record-scene { position: relative; width: 100%; height: clamp(270px, 88vw, 400px); flex: none; overflow: hidden; isolation: isolate; pointer-events: none; }
 .record-scene img { display: block; position: absolute; height: auto; user-select: none; }
 .login-backdrop { display: none; }
@@ -125,8 +127,17 @@ body:has(#login-screen:not([hidden])) main { isolation: isolate; }
 .record-scene .vinyl { height: auto; aspect-ratio: 1; }
 .record-scene .record-label { width: 43%; height: auto; aspect-ratio: 1; font-size: clamp(28px, 8vw, 36px); }
 .record-scene .record-label span { font-size: 6px; }
-.login-boar { z-index: 2; left: 0; bottom: 4%; width: 35%; filter: drop-shadow(0 4px 6px #100d2080); }
-.record-scene .login-wine { z-index: 2; right: 0; bottom: 6%; width: 30%; height: auto; aspect-ratio: 944 / 1204; object-fit: contain; filter: drop-shadow(0 4px 6px #100d2080); }
+.login-boar { z-index: 2; left: -4%; bottom: 4%; width: 44%; filter: drop-shadow(0 4px 6px #100d2080); }
+.record-scene .login-wine { z-index: 2; right: -4%; bottom: 6%; width: 39%; height: auto; aspect-ratio: 944 / 1204; object-fit: contain; filter: drop-shadow(0 4px 6px #100d2080); }
+@media (min-width: 600px) {
+  .login-boar { left: 0; }
+  .record-scene .login-wine { right: 0; }
+}
+.scan-mascot, .reveal-mascot { display: block; object-fit: contain; pointer-events: none; user-select: none; }
+.scan-mascot { width: min(65vw, 235px); height: auto; max-height: 180px; margin: 8px auto -6px; filter: drop-shadow(0 8px 18px #ff3d8120); }
+.reveal-mascot { display: none; width: min(36vw, 155px); height: auto; max-height: 160px; margin: -10px auto -18px; filter: drop-shadow(0 8px 18px #ff3d8120); }
+#game-screen:has(#result:not([hidden])) .reveal-mascot { display: block; }
+#game-screen:has(#timer:not([hidden]))::after { content: ""; position: absolute; inset: auto 0 98px; height: 90px; z-index: -1; pointer-events: none; background: url("assets/maremma/paesaggio.svg") center bottom / 100% auto no-repeat; opacity: .2; }
 @media (min-width: 600px) {
   body { padding-block: 40px; }
   main { padding: 28px 32px; border: 1px solid var(--border); border-radius: 32px; background: #100d2099; }
@@ -136,6 +147,10 @@ body:has(#login-screen:not([hidden])) main { isolation: isolate; }
   #login-screen { gap: 14px; }
   #login-screen .record-art { margin-block: 0; }
   body:has(#login-screen:not([hidden])) .game-footer { margin-top: 18px; }
+  #game-screen { gap: 17px; }
+  .ready-intro h2 { margin-bottom: 12px; }
+  .scan-action { min-height: 96px; margin-top: 0; gap: 9px; }
+  .scan-action::before { width: 33px; height: 33px; }
 }
 @media (max-width: 359px) {
   .topbar { margin-bottom: 20px; }
@@ -143,6 +158,8 @@ body:has(#login-screen:not([hidden])) main { isolation: isolate; }
   .title { font-size: 34px; }
   .game-title { font-size: 22px; }
   .primary-btn { padding-inline: 14px; font-size: 14px; }
+  .scan-mascot { width: 170px; }
+  .reveal-mascot { width: 112px; }
 }
 /* Fit the Login to the available Safari viewport; larger text may still scroll. */
 @media (max-width: 599px) {

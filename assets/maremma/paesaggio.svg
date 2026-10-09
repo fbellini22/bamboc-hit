@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 180" aria-hidden="true">
+  <defs>
+    <linearGradient id="hill" x2="0" y2="1">
+      <stop stop-color="#5e1d67"/><stop offset="1" stop-color="#1b1231"/>
+    </linearGradient>
+  </defs>
+  <path d="M0 112Q58 70 121 117T257 101Q359 43 480 114V180H0Z" fill="#38194e"/>
+  <path d="M0 143Q86 101 170 145T344 132Q416 97 480 141V180H0Z" fill="url(#hill)" stroke="#bb3184" stroke-width="1.5"/>
+  <path d="M0 167Q95 139 190 165T385 152Q433 137 480 162V180H0Z" fill="#130d26" stroke="#a53879" stroke-width="1"/>
+  <g fill="#190d2d" stroke="#e34a9b" stroke-width="1.2">
+    <path d="M32 149V102l-8 29h6l-6 15h6l-7 7h18l-7-7h6l-6-15h6Z"/>
+    <path d="M53 146V95l-9 32h7l-7 16h7l-7 8h20l-8-8h7l-7-16h7Z"/>
+    <path d="M411 143V93l-9 32h7l-7 16h7l-8 9h21l-8-9h7l-7-16h7Z"/>
+    <path d="M435 147V107l-7 25h5l-5 13h5l-5 7h16l-5-7h5l-5-13h5Z"/>
+    <path d="M334 104v-24h7V66h8v14h8v26Z"/>
+    <path d="M312 109V91l15-11 15 11v18Z"/>
+  </g>
+  <path d="M312 91h30M337 80v-7m-3 0h6" fill="none" stroke="#ffad66" stroke-width="1.6"/>
+  <path d="M322 96h3m20-1h3" stroke="#ffad66" stroke-width="3"/>
+</svg>
