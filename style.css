@@ -110,7 +110,7 @@ body:has(#login-screen:not([hidden])) .login-backdrop {
 }
 body:has(#login-screen:not([hidden])) main::before {
   content: ""; position: absolute; z-index: -1; pointer-events: none;
-  top: 140px; left: calc(50% - 50vw); width: 100vw;
+  top: 140px; left: calc(50% - 50vw + 16px); width: calc(100vw - 32px);
   height: clamp(281px, 39vw, 560px);
   background: url("assets/maremma/paesaggio-tramonto.png") 80% top / max(720px, 100%) auto no-repeat;
   -webkit-mask-image: linear-gradient(transparent, #000 18%, #000 65%, transparent 100%);
@@ -143,6 +143,22 @@ body:has(#login-screen:not([hidden])) main { isolation: isolate; }
   .title { font-size: 34px; }
   .game-title { font-size: 22px; }
   .primary-btn { padding-inline: 14px; font-size: 14px; }
+}
+/* Fit the Login to the available Safari viewport; larger text may still scroll. */
+@media (max-width: 599px) {
+  body:has(#login-screen:not([hidden])) {
+    padding-top: max(8px, env(safe-area-inset-top));
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+  }
+  body:has(#login-screen:not([hidden])) .topbar { min-height: 28px; margin-bottom: 8px; }
+  #login-screen { gap: clamp(6px, 1dvh, 10px); }
+  #login-screen .record-scene {
+    --scene-height: clamp(180px, calc(100dvh - 420px - env(safe-area-inset-top) - env(safe-area-inset-bottom)), 300px);
+    width: min(100%, calc(var(--scene-height) * 1.04));
+    height: auto; aspect-ratio: 1.04; overflow: visible;
+  }
+  body:has(#login-screen:not([hidden])) main::before { top: 96px; left: -16px; width: calc(100% + 32px); }
+  body:has(#login-screen:not([hidden])) .game-footer { margin-top: 4px; padding-block: 2px; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
