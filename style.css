@@ -127,10 +127,10 @@ body:has(#login-screen:not([hidden])) main { isolation: isolate; }
 .record-scene .vinyl { height: auto; aspect-ratio: 1; }
 .record-scene .record-label { width: 43%; height: auto; aspect-ratio: 1; font-size: clamp(28px, 8vw, 36px); }
 .record-scene .record-label span { font-size: 6px; }
-.login-boar { z-index: 2; left: -4%; bottom: 4%; width: 44%; filter: drop-shadow(0 4px 6px #100d2080); }
+.login-boar { --boar-width: min(55%, calc(35% + (100vw - 100%) / 2 - 4px)); z-index: 2; left: calc(35% - var(--boar-width)); bottom: 0; width: var(--boar-width); filter: drop-shadow(0 4px 6px #100d2080); }
 .record-scene .login-wine { z-index: 2; right: -4%; bottom: 6%; width: 39%; height: auto; aspect-ratio: 944 / 1204; object-fit: contain; filter: drop-shadow(0 4px 6px #100d2080); }
 @media (min-width: 600px) {
-  .login-boar { left: 0; }
+  .login-boar { left: 0; width: 35%; }
   .record-scene .login-wine { right: 0; }
 }
 .scan-mascot, .reveal-mascot { display: block; object-fit: contain; pointer-events: none; user-select: none; }
