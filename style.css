@@ -177,6 +177,135 @@ body:has(#login-screen:not([hidden])) main { isolation: isolate; }
   body:has(#login-screen:not([hidden])) main::before { top: 96px; left: -16px; width: calc(100% + 32px); }
   body:has(#login-screen:not([hidden])) .game-footer { margin-top: 4px; padding-block: 2px; }
 }
+/* Scan ready: decoration follows existing visibility, without changing game state. */
+body:has(#game-screen:not([hidden]) #scan-btn:not([hidden])) {
+  position: relative; isolation: isolate;
+  padding-block: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-bottom));
+  background: radial-gradient(ellipse at 80% 42%, #60204c66, transparent 70%), radial-gradient(ellipse at 20% 30%, #392050, transparent 75%), var(--bg);
+}
+body:has(#game-screen:not([hidden]) #scan-btn:not([hidden])) main { isolation: isolate; background: transparent; }
+body:has(#game-screen:not([hidden]) #scan-btn:not([hidden])) .topbar { min-height: 32px; margin-bottom: 8px; }
+body:has(#game-screen:not([hidden]) #scan-btn:not([hidden])) .game-footer { margin-top: 8px; padding-block: 4px; }
+#game-screen:has(#scan-btn:not([hidden])) { min-height: 0; gap: 10px; }
+#game-screen:has(#scan-btn:not([hidden]))::before {
+  inset: 24% -16px auto; height: 300px; opacity: .85;
+  background: url("assets/maremma/paesaggio-tramonto.png") 80% center / max(720px, 100%) auto no-repeat;
+  -webkit-mask-image: linear-gradient(transparent, #000 25%, #000 60%, transparent);
+  mask-image: linear-gradient(transparent, #000 25%, #000 60%, transparent);
+}
+#game-screen:has(#scan-btn:not([hidden])) .game-title { margin-bottom: 0; }
+#game-screen:has(#scan-btn:not([hidden])) .ready-intro { width: 100%; }
+#game-screen:has(#scan-btn:not([hidden])) .connection { margin-bottom: 8px; }
+#game-screen:has(#scan-btn:not([hidden])) .ready-intro h2 { font-size: clamp(32px, 9vw, 42px); margin-bottom: 8px; }
+#game-screen:has(#scan-btn:not([hidden])) .scan-mascot {
+  width: min(90%, 340px); height: clamp(90px, calc(100dvh - 430px), 250px); max-height: none;
+  margin: 10px auto 0; object-fit: contain; object-position: center bottom;
+  filter: drop-shadow(0 8px 14px #100d20a0) drop-shadow(0 0 12px #ff3d8126);
+}
+#game-screen:has(#scan-btn:not([hidden])) .scan-action { min-height: 68px; margin-top: 0; flex-direction: row; gap: 12px; }
+#game-screen:has(#scan-btn:not([hidden])) .scan-action::before { width: 26px; height: 26px; flex: none; }
+/* Playing only: preserve SVG geometry and the runtime-controlled dash offset. */
+body:has(#game-screen:not([hidden]) #timer:not([hidden])) {
+  position: relative; isolation: isolate;
+  padding-block: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-bottom));
+  background: radial-gradient(ellipse at 80% 42%, #60204c44, transparent 70%), radial-gradient(ellipse at 20% 30%, #392050, transparent 75%), var(--bg);
+}
+body:has(#game-screen:not([hidden]) #timer:not([hidden])) main { isolation: isolate; background: transparent; }
+body:has(#game-screen:not([hidden]) #timer:not([hidden])) .topbar { min-height: 32px; margin-bottom: 8px; }
+body:has(#game-screen:not([hidden]) #timer:not([hidden])) .game-footer { margin-top: 8px; padding-block: 4px; }
+#game-screen:has(#timer:not([hidden])) { min-height: 0; gap: clamp(8px, 1.6dvh, 16px); }
+body:has(#game-screen:not([hidden]) #timer:not([hidden]))::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(ellipse 42% 34% at 50% 57%, #100d20b3, transparent 100%),
+    linear-gradient(to bottom, #100d20 0%, #100d2044 28%, #100d2026 48%, #100d2080 72%, #100d20 100%),
+    radial-gradient(ellipse at 85% 44%, #70204b88, #302044 60%, #100d20);
+}
+body:has(#game-screen:not([hidden]) #timer:not([hidden]))::after {
+  content: ""; position: absolute; left: 0; right: 0; top: max(0px, calc(45% - 126px));
+  height: clamp(281px, 39vw, 560px); max-height: 75%; z-index: -1; pointer-events: none;
+  background: radial-gradient(ellipse at 50% 65%, #100d2077, transparent 80%), url("assets/maremma/paesaggio-tramonto.png") 80% center / max(720px, 100%) auto no-repeat;
+  -webkit-mask-image: linear-gradient(transparent, #000 25%, #000 60%, transparent);
+  mask-image: linear-gradient(transparent, #000 25%, #000 60%, transparent);
+}
+#game-screen:has(#timer:not([hidden]))::before { content: none; }
+#game-screen:has(#timer:not([hidden]))::after { content: none; }
+#game-screen:has(#timer:not([hidden])) .game-title { margin-bottom: 0; }
+#game-screen:has(#timer:not([hidden])) .playing-intro h2 { margin-top: 6px; font-size: clamp(34px, 10vw, 46px); }
+#game-screen:has(#timer:not([hidden])) .equalizer { margin-top: 10px; filter: drop-shadow(0 0 6px #ff3d8166); }
+#game-screen:has(#timer:not([hidden])) .timer {
+  width: clamp(150px, calc(100dvh - 370px), 280px); max-width: 88%; height: auto; aspect-ratio: 1;
+  border-radius: 50%; background: radial-gradient(circle, #181027c7 0%, #181027bd 52%, #181027a6 61%, transparent 64%);
+}
+#game-screen:has(#timer:not([hidden])) .progress-ring { display: block; }
+#game-screen:has(#timer:not([hidden])) .progress-ring-circle { stroke-width: 3.5; filter: none; }
+#game-screen:has(#timer:not([hidden])) .progress-ring-bg { stroke-width: 3.5; }
+#game-screen:has(#timer:not([hidden])) .timer-caption { bottom: 24%; }
+#game-screen:has(#timer:not([hidden])) #reveal-btn { min-height: 68px; }
+@media (max-height: 600px) {
+  body:has(#game-screen:not([hidden]) #timer:not([hidden])) .game-footer { margin-top: 4px; }
+  #game-screen:has(#timer:not([hidden])) { gap: 6px; }
+  #game-screen:has(#timer:not([hidden])) .playing-intro h2 { font-size: 32px; }
+  #game-screen:has(#timer:not([hidden])) .equalizer { height: 30px; margin-top: 6px; }
+}
+/* Reveal only: keep metadata in normal flow, including long titles/artists. */
+body:has(#game-screen:not([hidden]) #result:not([hidden])) {
+  position: relative; isolation: isolate;
+  padding-block: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-bottom));
+  background: radial-gradient(ellipse at 85% 34%, #46204455, transparent 70%), radial-gradient(ellipse at 20% 40%, #241b3e, transparent 75%), var(--bg);
+}
+body:has(#game-screen:not([hidden]) #result:not([hidden]))::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background: linear-gradient(#100d2033, transparent 35%, #100d20cc 80%, #100d20);
+}
+body:has(#game-screen:not([hidden]) #result:not([hidden]))::after {
+  content: ""; position: absolute; left: 0; right: 0; top: max(0px, calc(32% - 100px));
+  height: clamp(281px, 39vw, 560px); max-height: 70%; z-index: -1; pointer-events: none;
+  background: radial-gradient(ellipse at 85% 34%, #23153655, transparent 65%), linear-gradient(transparent 20%, #11152b33 65%, #100d2066), url("assets/maremma/paesaggio-tramonto.png") 80% center / max(720px, 100%) auto no-repeat;
+  filter: brightness(.87) saturate(.88);
+  -webkit-mask-image: linear-gradient(transparent, #000 25%, #000 60%, transparent);
+  mask-image: linear-gradient(transparent, #000 25%, #000 60%, transparent);
+}
+body:has(#game-screen:not([hidden]) #result:not([hidden])) main { isolation: isolate; background: transparent; }
+body:has(#game-screen:not([hidden]) #result:not([hidden])) .topbar { min-height: 32px; margin-bottom: 8px; }
+body:has(#game-screen:not([hidden]) #result:not([hidden])) .game-footer { margin-top: 8px; padding-block: 4px; }
+#game-screen:has(#result:not([hidden])) { min-height: 0; gap: clamp(8px, 1.5dvh, 12px); }
+#game-screen:has(#result:not([hidden]))::before { content: none; }
+#game-screen:has(#result:not([hidden])) .game-title { margin-bottom: 0; }
+#game-screen:has(#result:not([hidden])) .reveal-heading { margin-top: 0; }
+.reveal-scene { display: none; }
+#game-screen:has(#result:not([hidden])) .reveal-scene {
+  display: block; position: relative; width: min(100%, 350px);
+  height: clamp(88px, calc(100dvh - 480px), 210px); margin: 0 auto;
+  pointer-events: none;
+}
+#game-screen:has(#result:not([hidden])) .reveal-mascot {
+  position: absolute; right: 9%; bottom: 0;
+  width: auto; height: 100%; max-height: none; max-width: 70%;
+  margin: 0; object-fit: contain; object-position: center bottom;
+  filter: brightness(.70) saturate(.82) contrast(.97) drop-shadow(0 7px 12px #101329b3);
+  -webkit-mask-image: linear-gradient(#000 85%, transparent);
+  mask-image: linear-gradient(#000 85%, transparent);
+}
+#game-screen:has(#result:not([hidden])) .reveal-dj {
+  position: absolute; right: 51%; bottom: 0;
+  width: auto; height: 62%; max-width: 49%; object-fit: contain; object-position: right bottom;
+  filter: brightness(.78) saturate(.82) drop-shadow(0 5px 8px #10132999);
+  -webkit-mask-image: linear-gradient(#000 91%, transparent);
+  mask-image: linear-gradient(#000 91%, transparent);
+}
+#game-screen:has(#result:not([hidden])) .card { padding: 12px 8px; border-color: #ff9ac42e; background: linear-gradient(transparent, #100d2055, transparent); }
+#game-screen:has(#result:not([hidden])) .card-back { gap: 8px; min-width: 0; }
+#game-screen:has(#result:not([hidden])) .card-back h2 { max-width: 100%; font-size: clamp(28px, 8.5vw, 40px); line-height: 1.08; letter-spacing: -1px; }
+#game-screen:has(#result:not([hidden])) .card-back p { max-width: 100%; font-size: 18px; line-height: 1.35; }
+#game-screen:has(#result:not([hidden])) .card-back p:last-child { padding: 7px 20px; font-size: 28px; line-height: 1.1; }
+#game-screen:has(#result:not([hidden])) #reset-btn { min-height: 68px; }
+@media (max-height: 520px) {
+  #game-screen:has(#result:not([hidden])) { gap: 6px; }
+  #game-screen:has(#result:not([hidden])) .reveal-scene { height: 80px; }
+  #game-screen:has(#result:not([hidden])) .card { padding-block: 6px; }
+  body:has(#game-screen:not([hidden]) #result:not([hidden])) .game-footer { margin-top: 4px; padding-block: 2px; }
+}
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
