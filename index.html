@@ -17,6 +17,7 @@
     <script defer src="app.js"></script>
   </head>
   <body>
+    <div class="login-backdrop" aria-hidden="true"></div>
     <main>
       <header class="topbar">
         <span class="brand-mark" aria-label="Bamboc-Hit">BH</span>
@@ -26,7 +27,11 @@
       <section id="login-screen" class="screen">
         <p class="eyebrow">BUONA MUSICA. OTTIMA COMPAGNIA.</p>
         <h1 class="title">BAMBOC<span>-HIT</span></h1>
-        <div class="record-art" aria-hidden="true"><div class="vinyl"><span class="record-label">B<span>HIT PLAY<br />MAKE SOME NOISE</span></span></div></div>
+        <div class="record-scene" aria-hidden="true">
+          <div class="record-art"><div class="vinyl"><span class="record-label">B<span>HIT PLAY<br />MAKE SOME NOISE</span></span></div></div>
+          <img class="login-boar" src="assets/maremma/cinghiale-occhiali.webp" alt="" width="1160" height="1200" decoding="async" />
+          <img class="login-wine" src="assets/maremma/vino.webp" alt="" width="944" height="1204" decoding="async" />
+        </div>
         <h2 class="login-question">Quanto conosci<br />davvero la musica?</h2>
         <p class="supporting">Una carta. Una canzone. Chi la indovina?</p>
         <button id="login-btn" class="primary-btn" type="button">ACCEDI CON SPOTIFY</button>

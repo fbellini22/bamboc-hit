@@ -100,6 +100,33 @@ button:disabled { opacity: .55; cursor: wait; box-shadow: none; transform: none;
 #connect-btn { margin-top: 20px; }
 .game-footer { margin-top: 32px; padding: 12px 0; color: var(--muted); font-size: 9px; letter-spacing: 1.4px; line-height: 1.8; }
 .game-footer span { color: var(--pink); margin-right: 6px; }
+.record-scene { position: relative; width: 100%; height: clamp(270px, 88vw, 400px); flex: none; overflow: hidden; isolation: isolate; pointer-events: none; }
+.record-scene img { display: block; position: absolute; height: auto; user-select: none; }
+.login-backdrop { display: none; }
+body:has(#login-screen:not([hidden])) { position: relative; isolation: isolate; overflow-x: clip; }
+body:has(#login-screen:not([hidden])) .login-backdrop {
+  display: block; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background: radial-gradient(ellipse 95% 42% at 80% 36%, #9b235b55, transparent 80%), radial-gradient(ellipse 120% 65% at 12% 50%, #57207a66, transparent 85%), linear-gradient(#100d2080, transparent 32%, #100d2033 58%, #100d20 100%);
+}
+body:has(#login-screen:not([hidden])) main::before {
+  content: ""; position: absolute; z-index: -1; pointer-events: none;
+  top: 140px; left: calc(50% - 50vw); width: 100vw;
+  height: clamp(281px, 39vw, 560px);
+  background: url("assets/maremma/paesaggio-tramonto.png") 80% top / max(720px, 100%) auto no-repeat;
+  -webkit-mask-image: linear-gradient(transparent, #000 18%, #000 65%, transparent 100%);
+  mask-image: linear-gradient(transparent, #000 18%, #000 65%, transparent 100%);
+}
+body:has(#login-screen:not([hidden])) main { isolation: isolate; }
+@media (min-width: 600px) {
+  body:has(#login-screen:not([hidden])) main { background: transparent; }
+  body:has(#login-screen:not([hidden])) main::before { top: 180px; }
+}
+.record-scene .record-art { position: absolute; z-index: 1; left: 50%; bottom: 8%; width: 68%; height: auto; aspect-ratio: 1; margin: 0; transform: translateX(-50%); box-shadow: 0 0 0 1px #ffad66, 0 0 0 3px #ff3d8180, 0 0 20px #ff3d8140; }
+.record-scene .vinyl { height: auto; aspect-ratio: 1; }
+.record-scene .record-label { width: 43%; height: auto; aspect-ratio: 1; font-size: clamp(28px, 8vw, 36px); }
+.record-scene .record-label span { font-size: 6px; }
+.login-boar { z-index: 2; left: 0; bottom: 4%; width: 35%; filter: drop-shadow(0 4px 6px #100d2080); }
+.record-scene .login-wine { z-index: 2; right: 0; bottom: 6%; width: 30%; height: auto; aspect-ratio: 944 / 1204; object-fit: contain; filter: drop-shadow(0 4px 6px #100d2080); }
 @media (min-width: 600px) {
   body { padding-block: 40px; }
   main { padding: 28px 32px; border: 1px solid var(--border); border-radius: 32px; background: #100d2099; }
