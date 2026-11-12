@@ -358,15 +358,18 @@ test("relinked track identity is accepted without using Spotify editorial fields
 
 function scannerFixture(options = {}) {
   let instance, starts=0, stops=0;
-  const c=environment({isSecureContext:true});
+  const c=environment({isSecureContext:true,...(options.clock ? {
+    setTimeout:options.clock.schedule,clearTimeout:options.clock.unschedule,Date:options.clock.Date,
+  } : {})});
   class FakeScanner {
     constructor(){instance=this;}
-    async start(camera, config, success) {
-      starts++; this.decoded=success;
+    async start(camera, config, success, unread) {
+      starts++; this.decoded=success;this.unread=unread;
       if (options.permission) throw new Error("NotAllowedError: permission denied");
       if (options.fallback && starts===1) throw new Error("OverconstrainedError");
+      if (options.startGate) await options.startGate;
     }
-    async stop(){stops++;}
+    async stop(){stops++;if(options.stopGate) await options.stopGate;if(options.stopFail)throw new Error("stop failed");}
     clear(){}
     static async getCameras(){return [{id:"rear",label:"posteriore"}];}
   }
@@ -395,6 +398,71 @@ test("scanner rejection recovers lock and camera permission is not retried repea
 test("scanner camera constraint failure uses rear-camera fallback", async () => {
   const f=scannerFixture({fallback:true});await f.api.start(()=>false,()=>{});
   assert.equal(f.starts,2);await f.api.stop();
+});
+test("scanner: stuck stop times out, rejects restarts promptly, and recovers only after settlement", async()=>{
+  const clock=fakeClock(),gate=defer(),f=scannerFixture({clock,stopGate:gate.promise});
+  await f.api.start(()=>false,()=>{});
+  const old=f.instance;
+  const stopped=f.api.stop(),same=f.api.stop();assert.equal(stopped,same);
+  const rejected=assert.rejects(stopped,e=>e.code==="SCANNER_BUSY");
+  await clock.advance(80);await rejected;
+  await assert.rejects(f.api.start(()=>false,()=>{}),e=>e.code==="SCANNER_BUSY");
+  await assert.rejects(f.api.stop(),e=>e.code==="SCANNER_BUSY");
+  assert.equal(f.starts,1);assert.equal(f.stops,1);
+  gate.resolve();await flush();
+  await f.api.start(()=>false,()=>{});assert.equal(f.starts,2);assert.notEqual(f.instance,old);
+  await f.api.stop();assert.equal(clock.pending,0);
+});
+test("scanner: late stop rejection permits a cleanup retry before any new stream", async()=>{
+  const clock=fakeClock(),gate=defer(),options={clock,stopGate:gate.promise},f=scannerFixture(options);
+  await f.api.start(()=>false,()=>{});
+  const rejected=assert.rejects(f.api.stop(),e=>e.code==="SCANNER_BUSY");
+  await clock.advance(80);await rejected;
+  gate.reject(new Error("late stop failure"));await flush();
+  options.stopGate=null;
+  await f.api.stop();assert.equal(f.stops,2);assert.equal(f.starts,1);
+  await f.api.start(()=>false,()=>{});await f.api.stop();
+});
+test("scanner: canceled pending camera start cleans up late and ignores old callbacks", async()=>{
+  const clock=fakeClock(),gate=defer(),f=scannerFixture({clock,startGate:gate.promise});let scans=0,statuses=0;
+  const starting=f.api.start(()=>{scans++;return false;},()=>{},()=>{statuses++;});
+  await flush();const old=f.instance;
+  const stopping=f.api.stop();
+  const rejectedStart=assert.rejects(starting,e=>e.code==="SCANNER_BUSY");
+  const rejectedStop=assert.rejects(stopping,e=>e.code==="SCANNER_BUSY");
+  await clock.advance(80);await Promise.all([rejectedStart,rejectedStop]);
+  old.decoded("old");old.unread();await flush();assert.equal(scans,0);
+  await assert.rejects(f.api.start(()=>false,()=>{}),e=>e.code==="SCANNER_BUSY");assert.equal(f.starts,1);
+  gate.resolve();await flush();assert.equal(f.stops,1);
+  await f.api.start(()=>false,()=>{});assert.equal(f.starts,2);
+  old.decoded("old");old.unread();await clock.advance(5000);assert.equal(scans,0);assert.equal(statuses,0);
+  await f.api.stop();assert.equal(clock.pending,0);
+});
+test("scanner: start timeout alone invalidates late acquisition and releases it before restart", async()=>{
+  const clock=fakeClock(),gate=defer(),f=scannerFixture({clock,startGate:gate.promise});let scans=0;
+  const rejected=assert.rejects(f.api.start(()=>{scans++;return true;},()=>{}),e=>e.code==="SCANNER_BUSY");
+  await flush();await clock.advance(80);await rejected;
+  f.instance.decoded("late");await flush();assert.equal(scans,0);
+  await assert.rejects(f.api.start(()=>false,()=>{}),e=>e.code==="SCANNER_BUSY");assert.equal(f.starts,1);
+  gate.resolve();await flush();assert.equal(f.stops,1);
+  await f.api.start(()=>false,()=>{});assert.equal(f.starts,2);await f.api.stop();assert.equal(clock.pending,0);
+});
+test("scanner: cancellation before queued start never opens the camera", async()=>{
+  const clock=fakeClock(),f=scannerFixture({clock});
+  const starting=f.api.start(()=>{throw new Error("stale callback");},()=>{});
+  const stopping=f.api.stop();await Promise.all([starting,stopping]);
+  assert.equal(f.starts,0);assert.equal(clock.pending,0);
+});
+test("scanner: unread frames report once, decoded invalid QR is distinct, cancellation clears feedback", async()=>{
+  const clock=fakeClock(),f=scannerFixture({clock}),statuses=[];let scans=0;
+  await f.api.start(()=>{scans++;return false;},()=>{},status=>statuses.push(status.code));
+  for(let i=0;i<20;i++)f.instance.unread();
+  await clock.advance(4999);assert.deepEqual(statuses,[]);assert.equal(scans,0);
+  await clock.advance(1);assert.deepEqual(statuses,["QR_NOT_READ"]);
+  f.instance.unread();await clock.advance(5000);assert.equal(statuses.length,1);
+  f.instance.decoded("not a spotify QR");await flush();assert.equal(scans,1);
+  f.instance.unread();await f.api.stop();await clock.advance(5000);
+  assert.equal(statuses.length,1);assert.equal(clock.pending,0);
 });
 
 function fakeClock() {
@@ -442,10 +510,10 @@ function appFixture({clock, preplayMs=0, songs=[song], context, realSession=fals
   c.Bamboc.config.preplayMs=preplayMs;
   if (clock) c.Bamboc.core={...core,preplayCountdown:(duration,tick,options)=>
     core.preplayCountdown(duration,tick,{...options,now:clock.now,schedule:clock.schedule,unschedule:clock.unschedule})};
-  const calls=[]; let decoded, pause=Promise.resolve(), nextPlay=Promise.resolve(null), errors, states;
+  const calls=[]; let decoded, scanStatus, pause=Promise.resolve(), nextPlay=Promise.resolve(null), errors, states;
   if (!realSession) c.Bamboc.auth={handleRedirect:async()=>{},getToken:async()=>"a",hasValidToken:()=>true,
     onInvalidated:()=>()=>{},clear(){},LoginRequired:class extends Error{},login:async()=>{}};
-  c.Bamboc.scanner={start:async callback=>{decoded=callback;calls.push("scan");},stop:async()=>{calls.push("camera stop");}};
+  c.Bamboc.scanner={start:async (callback,_error,status)=>{decoded=callback;scanStatus=status;calls.push("scan");},stop:async()=>{calls.push("camera stop");}};
   if (!realSession) c.Bamboc.playback={
     isReady:()=>true,resetSession(){calls.push("disconnect");},
     activate:()=>{calls.push("activate");return Promise.resolve();},prepare:async()=>{},
@@ -460,6 +528,7 @@ function appFixture({clock, preplayMs=0, songs=[song], context, realSession=fals
   };
   load(c,"app.js");
   return {c,element,calls,click:id=>listeners[id+":click"](),scan:text=>decoded(text),
+    scanStatus:status=>scanStatus(status),
     setPause:value=>{pause=value;},setPlay:value=>{nextPlay=value;},
     error:()=>errors(new Error("offline")),state:value=>states(value),
     get decoded(){return decoded;},
@@ -467,6 +536,50 @@ function appFixture({clock, preplayMs=0, songs=[song], context, realSession=fals
     pagehide:()=>windowListeners.pagehide()};
 }
 
+test("QR feedback distinguishes unread, invalid, absent, invalid entry and conflicting duplicate", async()=>{
+  for(const [songs,payload,code] of [
+    [[song],"not a QR URL","QR_INVALID"],
+    [[song],"spotify:track:"+otherId,"QR_ID_ABSENT"],
+    [[song,{...song,id:otherId,title:""}],"spotify:track:"+otherId,"QR_ID_INVALID_ENTRY"],
+    [[song,{...song,title:"Conflicting title"}],"spotify:track:"+id,"QR_DUPLICATE_ID"],
+  ]) {
+    const f=appFixture({songs});await flush();f.click("scan-btn");await flush();
+    f.scanStatus({code:"QR_NOT_READ",message:"QR non ancora letto."});
+    assert.equal(f.element("status").attributes["data-scan-state"],"QR_NOT_READ");
+    assert.equal(await f.scan(payload),false);
+    assert.equal(f.element("status").attributes["data-scan-state"],code);
+    assert.equal(f.element("scanner-container").hidden,false);assert.equal(f.calls.includes("play"),false);
+    f.click("cancel-btn");await flush();const text=f.element("status").textContent;
+    f.scanStatus({code:"QR_NOT_READ",message:"stale"});assert.equal(f.element("status").textContent,text);
+    f.pagehide();
+  }
+});
+test("QR feedback: identical duplicates stay playable and invalid QR does not require reopening", async()=>{
+  const f=appFixture({songs:[song,{...song}]});await flush();f.click("scan-btn");await flush();
+  assert.equal(await f.scan("bad"),false);
+  await f.scan("spotify:track:"+id);
+  assert.equal(f.element("status").attributes["data-scan-state"],"QR_ROUND_ACTIVE");
+  assert.equal(f.calls.filter(x=>x==="scan").length,1);assert.equal(f.calls.filter(x=>x==="play").length,1);
+  f.pagehide();
+});
+test("UI: camera timeout exposes retry, ignores stale QR and recovers without starting playback", async()=>{
+  const clock=fakeClock(),f=appFixture({clock});await flush();f.click("scan-btn");await flush();
+  const scannerObject=f.c.Bamboc.scanner;
+  const gate=defer(),camera=scannerFixture({clock,stopGate:gate.promise});
+  await camera.api.start(()=>false,()=>{});
+  scannerObject.stop=camera.api.stop;
+  f.click("cancel-btn");await flush();await clock.advance(80);
+  assert.equal(f.element("reset-btn").disabled,false);
+  assert.equal(f.element("reset-btn").textContent,"RIPROVA STOP");
+  assert.match(f.element("status").textContent,/Fotocamera ancora occupata/);
+  assert.equal(await f.scan("spotify:track:"+id),true);assert.equal(f.calls.includes("play"),false);
+  f.click("reset-btn");await flush();assert.equal(f.element("reset-btn").disabled,false);
+  assert.match(f.element("status").textContent,/ricarica/);
+  gate.resolve();await flush();f.click("reset-btn");await flush();
+  assert.equal(f.element("scan-btn").disabled,false);assert.equal(f.calls.includes("play"),false);
+  f.click("scan-btn");await flush();assert.equal(f.element("scanner-container").hidden,false);
+  f.pagehide();
+});
 test("full simulated login -> scan -> play -> reveal -> next serializes pause and keeps local metadata", async () => {
   const f=appFixture();await delay(0);
   assert.equal(f.element("game-screen").hidden,false);
@@ -737,7 +850,7 @@ function sessionFixture(options={}) {
   const cleaned=[];
   player.c.history.replaceState=(_a,_b,value)=>{cleaned.push(value);player.c.location.href=new URL(value,player.c.location.origin).href;};
   const reports=[];player.api.onDiagnostic(d=>reports.push(d));
-  const app=appFixture({context:player.c,realSession:true});
+  const app=appFixture({context:player.c,realSession:true,clock:options.clock});
   return {...app,player,cleaned,reports};
 }
 function assertLoggedOut(f) {
@@ -748,6 +861,118 @@ function assertLoggedOut(f) {
   assert.equal(f.player.api.isReady(),false);
   assert.equal(f.c.localStorage.getItem("bamboc.spotify.tokens"),null);
 }
+async function pendingCameraSession({ immediateFailure = false } = {}) {
+  const clock=fakeClock(),gate=defer(),f=sessionFixture({clock});await flush();
+  const options={clock,stopGate:immediateFailure ? null : gate.promise,stopFail:immediateFailure};
+  const camera=scannerFixture(options);
+  Object.assign(f.c.Bamboc.scanner,camera.api);
+  f.click("scan-btn");await flush();const old=camera.instance;
+  old.decoded("spotify:track:"+id);await flush();
+  if(!immediateFailure)await clock.advance(80);
+  await flush();
+  assert.equal(f.player.requests.length,0);
+  assert.equal(f.element("status").attributes["data-scan-state"],"QR_CARD_STOP_ERROR");
+  async function recover() {
+    options.stopFail=false;gate.resolve();await flush();
+    f.click("reset-btn");await flush();
+    assert.equal(f.element("status").attributes["data-scan-state"],"QR_CARD_READY");
+    if(!f.element("connect-btn").hidden) {f.click("connect-btn");await flush();}
+    assert.equal(f.player.requests.length,0);
+  }
+  return {f,camera,clock,gate,options,old,recover};
+}
+test("pending card: timeout recovery retains card, requires confirmation and never reopens camera", async()=>{
+  const {f,camera,clock,old,recover}=await pendingCameraSession();
+  assert.equal(f.element("reset-btn").textContent,"RIPROVA STOP");
+  await assert.rejects(camera.api.start(()=>false,()=>{}),e=>e.code==="SCANNER_BUSY");
+  assert.equal(camera.starts,1);
+  await recover();
+  assert.equal(f.element("scan-btn").textContent,"RIPRENDI CARTA");
+  assert.equal(f.element("scan-btn").disabled,false);
+  old.decoded("spotify:track:"+otherId);old.unread();await clock.advance(1000);
+  assert.equal(f.player.requests.length,0);
+  assert.equal(f.element("status").attributes["data-scan-state"],"QR_CARD_READY");
+  f.c.Bamboc.config.preplayMs=3000;
+  f.click("scan-btn");await flush();
+  assert.equal(f.player.requests.length,0);
+  await clock.advance(2999);assert.equal(f.player.requests.length,0);
+  await clock.advance(1);
+  await flush();await flush();
+  assert.equal(camera.starts,1);assert.equal(f.player.requests.length,1);
+  assert.deepEqual(f.player.requests[0].body.uris,["spotify:track:"+id]);
+  assert.equal(f.element("status").attributes["data-scan-state"],"QR_ROUND_ACTIVE");
+  assert.equal(f.element("countdown").textContent,"30");
+  f.pagehide();
+});
+test("pending card: explicit stop failure also preserves the card through recovery", async()=>{
+  const {f,camera,recover}=await pendingCameraSession({immediateFailure:true});
+  await recover();assert.equal(f.element("scan-btn").textContent,"RIPRENDI CARTA");
+  assert.equal(f.player.requests.length,0);
+  f.click("scan-btn");await flush();await flush();await flush();
+  assert.equal(f.player.requests.length,1);assert.equal(camera.starts,1);
+  f.pagehide();
+});
+test("pending card: cancellation while stop is blocked discards card without bypassing the barrier", async()=>{
+  const {f,camera,gate,old}=await pendingCameraSession();
+  f.click("cancel-btn");await flush();
+  assert.equal(f.element("status").attributes["data-scan-state"],"QR_STOP_ERROR");
+  await assert.rejects(camera.api.start(()=>false,()=>{}),e=>e.code==="SCANNER_BUSY");
+  assert.equal(camera.starts,1);
+  gate.resolve();await flush();f.click("reset-btn");await flush();
+  if(!f.element("connect-btn").hidden){f.click("connect-btn");await flush();}
+  assert.equal(f.element("scan-btn").textContent,"SCANSIONA LA CARTA");
+  assert.equal(f.element("status").attributes["data-scan-state"],"QR_CANCELLED");
+  old.decoded("spotify:track:"+id);await flush();assert.equal(f.player.requests.length,0);
+  f.click("scan-btn");await flush();assert.equal(camera.starts,2);
+  assert.equal(f.element("status").attributes["data-scan-state"],"QR_WAITING");f.pagehide();
+});
+test("pending card: cancellation after recovery removes confirmation and leaves no automatic play", async()=>{
+  const {f,clock,recover}=await pendingCameraSession();await recover();
+  f.click("cancel-btn");await flush();await clock.advance(1000);
+  assert.equal(f.element("scan-btn").textContent,"SCANSIONA LA CARTA");
+  assert.equal(f.element("status").attributes["data-scan-state"],"QR_CANCELLED");
+  assert.equal(f.player.requests.length,0);assert.equal(f.element("cancel-btn").hidden,true);f.pagehide();
+});
+test("pending card: new game discards old card and stale callbacks cannot replace it", async()=>{
+  const {f,camera,old,recover}=await pendingCameraSession();await recover();
+  assert.equal(f.element("reset-btn").textContent,"NUOVA CARTA");
+  f.click("reset-btn");await flush();assert.equal(camera.starts,2);
+  assert.equal(f.element("scan-btn").textContent,"SCANSIONA LA CARTA");
+  old.decoded("spotify:track:"+id);old.unread();await flush();assert.equal(f.player.requests.length,0);
+  assert.equal(f.element("status").attributes["data-scan-state"],"QR_WAITING");f.pagehide();
+});
+test("pending card: logout and late camera completion cannot restore a discarded card", async()=>{
+  const {f,clock,gate,old}=await pendingCameraSession();
+  f.click("logout-btn");await flush();assertLoggedOut(f);
+  assert.equal(f.element("status").attributes["data-scan-state"],"QR_IDLE");
+  gate.resolve();old.decoded("spotify:track:"+id);old.unread();await clock.advance(1000);
+  assertLoggedOut(f);assert.equal(f.element("scan-btn").textContent,"SCANSIONA LA CARTA");
+  assert.equal(f.element("status").attributes["data-scan-state"],"QR_IDLE");assert.equal(f.player.requests.length,0);f.pagehide();
+});
+test("pending card: cancel during resume activation invalidates its continuation", async()=>{
+  const {f,recover}=await pendingCameraSession();await recover();
+  const activation=defer();f.player.instance.activateElement=()=>activation.promise;
+  f.click("scan-btn");await flush();assert.equal(f.element("status").attributes["data-scan-state"],"QR_OPENING");
+  f.click("cancel-btn");await flush();activation.resolve();await flush();
+  assert.equal(f.player.requests.length,0);assert.equal(f.element("status").attributes["data-scan-state"],"QR_CANCELLED");
+  assert.equal(f.element("scan-btn").textContent,"SCANSIONA LA CARTA");f.pagehide();
+});
+test("pending card: late stop failure after cancel cannot resurrect an accepted card", async()=>{
+  const clock=fakeClock(),gate=defer(),f=sessionFixture({clock});await flush();
+  const options={clock,stopGate:gate.promise},camera=scannerFixture(options);
+  Object.assign(f.c.Bamboc.scanner,camera.api);
+  f.click("scan-btn");await flush();const old=camera.instance;
+  old.decoded("spotify:track:"+id);await flush();
+  assert.equal(f.element("status").attributes["data-scan-state"],"QR_ACCEPTED");
+  f.click("cancel-btn");await flush();await clock.advance(80);
+  assert.equal(f.element("status").attributes["data-scan-state"],"QR_STOP_ERROR");
+  gate.reject(new Error("late stop rejection"));await flush();options.stopGate=null;
+  f.click("reset-btn");await flush();
+  if(!f.element("connect-btn").hidden){f.click("connect-btn");await flush();}
+  assert.equal(f.element("scan-btn").textContent,"SCANSIONA LA CARTA");
+  assert.equal(f.element("status").attributes["data-scan-state"],"QR_CANCELLED");
+  old.decoded("spotify:track:"+id);await flush();assert.equal(f.player.requests.length,0);f.pagehide();
+});
 test("session: first visit without tokens shows working LOGIN and cannot scan or initialize SDK", async()=>{
   const f=sessionFixture({tokens:{}});await flush();assertLoggedOut(f);
   assert.equal(f.element("status").textContent,"");
